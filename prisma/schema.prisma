@@ -1,0 +1,239 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  firstName     String?
+  lastName      String?
+  isActive      Boolean   @default(true)
+  emailVerified Boolean   @default(false)
+  twoFactorEnabled Boolean @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+
+  // Relations
+  wallets       Wallet[]
+  transactions  Transaction[]
+  stakingPools  StakingPool[]
+  swapTrades    SwapTrade[]
+  sessions      UserSession[]
+
+  @@map("users")
+}
+
+model Wallet {
+  id            String    @id @default(cuid())
+  userId        String
+  address       String    @unique
+  publicKey     String
+  encryptedPrivateKey String
+  mnemonic      String?   // Encrypted mnemonic phrase
+  name          String?   @default("Main Wallet")
+  balance       Decimal   @default(0) @db.Decimal(20, 8)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sentTransactions     Transaction[] @relation("SentTransactions")
+  receivedTransactions Transaction[] @relation("ReceivedTransactions")
+
+  @@map("wallets")
+}
+
+model Transaction {
+  id            String    @id @default(cuid())
+  hash          String    @unique
+  fromUserId    String?
+  toUserId      String?
+  fromAddress   String
+  toAddress     String
+  amount        Decimal   @db.Decimal(20, 8)
+  fee           Decimal   @db.Decimal(20, 8)
+  gasUsed       BigInt?
+  gasPrice      Decimal?  @db.Decimal(20, 8)
+  blockHeight   Int?
+  blockHash     String?
+  status        TransactionStatus @default(PENDING)
+  type          TransactionType   @default(TRANSFER)
+  data          Json?     // Additional transaction data
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  confirmedAt   DateTime?
+
+  // Relations
+  fromUser      User?     @relation(fields: [fromUserId], references: [id])
+  fromWallet    Wallet?   @relation("SentTransactions", fields: [fromAddress], references: [address])
+  toWallet      Wallet?   @relation("ReceivedTransactions", fields: [toAddress], references: [address])
+
+  @@map("transactions")
+}
+
+model Block {
+  id            String    @id @default(cuid())
+  height        Int       @unique
+  hash          String    @unique
+  previousHash  String
+  timestamp     DateTime
+  validator     String
+  transactions  Int       @default(0)
+  size          Int       // Block size in bytes
+  gasUsed       BigInt    @default(0)
+  gasLimit      BigInt    @default(0)
+  difficulty    String?
+  nonce         String?
+  merkleRoot    String
+  stateRoot     String?
+  data          Json?     // Additional block data
+  createdAt     DateTime  @default(now())
+
+  @@map("blocks")
+}
+
+model StakingPool {
+  id            String    @id @default(cuid())
+  userId        String
+  validatorId   String
+  amount        Decimal   @db.Decimal(20, 8)
+  rewards       Decimal   @default(0) @db.Decimal(20, 8)
+  status        StakingStatus @default(ACTIVE)
+  startDate     DateTime  @default(now())
+  endDate       DateTime?
+  apy           Decimal   @db.Decimal(5, 2) // Annual Percentage Yield
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  user          User      @relation(fields: [userId], references: [id])
+  validator     Validator @relation(fields: [validatorId], references: [id])
+
+  @@map("staking_pools")
+}
+
+model Validator {
+  id            String    @id @default(cuid())
+  name          String
+  address       String    @unique
+  publicKey     String
+  commission    Decimal   @db.Decimal(5, 2) // Commission percentage
+  stake         Decimal   @db.Decimal(20, 8)
+  status        ValidatorStatus @default(ACTIVE)
+  uptime        Decimal   @default(100) @db.Decimal(5, 2)
+  blocksProduced Int      @default(0)
+  lastActiveAt  DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  stakingPools  StakingPool[]
+
+  @@map("validators")
+}
+
+model SwapTrade {
+  id            String    @id @default(cuid())
+  userId        String
+  fromToken     String
+  toToken       String
+  fromAmount    Decimal   @db.Decimal(20, 8)
+  toAmount      Decimal   @db.Decimal(20, 8)
+  exchangeRate  Decimal   @db.Decimal(20, 8)
+  fee           Decimal   @db.Decimal(20, 8)
+  slippage      Decimal   @db.Decimal(5, 2)
+  txHash        String?   @unique
+  status        SwapStatus @default(PENDING)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  completedAt   DateTime?
+
+  // Relations
+  user          User      @relation(fields: [userId], references: [id])
+
+  @@map("swap_trades")
+}
+
+model UserSession {
+  id            String    @id @default(cuid())
+  userId        String
+  token         String    @unique
+  deviceInfo    String?
+  ipAddress     String?
+  userAgent     String?
+  isActive      Boolean   @default(true)
+  expiresAt     DateTime
+  createdAt     DateTime  @default(now())
+  lastUsedAt    DateTime  @default(now())
+
+  // Relations
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_sessions")
+}
+
+model AdminLog {
+  id            String    @id @default(cuid())
+  action        String
+  description   String?
+  userId        String?
+  ipAddress     String?
+  userAgent     String?
+  data          Json?
+  createdAt     DateTime  @default(now())
+
+  @@map("admin_logs")
+}
+
+// Enums
+enum TransactionStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+  REJECTED
+}
+
+enum TransactionType {
+  TRANSFER
+  STAKE
+  UNSTAKE
+  SWAP
+  REWARD
+  FEE
+}
+
+enum StakingStatus {
+  ACTIVE
+  PENDING
+  UNSTAKING
+  COMPLETED
+  SLASHED
+}
+
+enum ValidatorStatus {
+  ACTIVE
+  INACTIVE
+  JAILED
+  SLASHED
+}
+
+enum SwapStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  EXPIRED
+}

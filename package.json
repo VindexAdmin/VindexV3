@@ -1,0 +1,48 @@
+{
+  "name": "vindex-ecosystem",
+  "version": "1.0.0",
+  "description": "Vindex Chain - Complete Blockchain Cryptocurrency Ecosystem",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=packages/blockchain-core\" \"npm run dev --workspace=packages/wallet-app\" \"npm run dev --workspace=packages/explorer\" \"npm run dev --workspace=packages/admin-dashboard\"",
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "lint": "npm run lint --workspaces",
+    "start:blockchain": "npm run start --workspace=packages/blockchain-core",
+    "start:wallet": "npm run start --workspace=packages/wallet-app",
+    "start:explorer": "npm run start --workspace=packages/explorer",
+    "start:admin": "npm run start --workspace=packages/admin-dashboard",
+    "setup": "npm install && npm run build"
+  },
+  "keywords": [
+    "blockchain",
+    "cryptocurrency",
+    "proof-of-stake",
+    "staking",
+    "defi",
+    "vindex"
+  ],
+  "author": "Vindex Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^20.10.5",
+    "concurrently": "^8.2.2",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.12.0",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.0",
+    "express-rate-limit": "^8.0.1",
+    "express-validator": "^7.2.1",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "prisma": "^6.12.0"
+  }
+}

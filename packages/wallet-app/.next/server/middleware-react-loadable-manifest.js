@@ -1,0 +1,1 @@
+self.__REACT_LOADABLE_MANIFEST="{\"../lib/phantom-wallet-service.ts -> ./solana-service\":{\"id\":\"../lib/phantom-wallet-service.ts -> ./solana-service\",\"files\":[]}}"

@@ -1,0 +1,54 @@
+{
+  "name": "@vindex/blockchain-core",
+  "version": "1.0.0",
+  "description": "Vindex Chain - Proof of Stake Blockchain Core",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "start": "node dist/index.js",
+    "test": "jest",
+    "lint": "eslint src/**/*.ts",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "crypto-js": "^4.2.0",
+    "ws": "^8.16.0",
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "compression": "^1.7.4",
+    "morgan": "^1.10.0",
+    "dotenv": "^16.3.1",
+    "uuid": "^9.0.1",
+    "elliptic": "^6.5.4",
+    "merkletreejs": "^0.3.11"
+  },
+  "devDependencies": {
+    "@types/crypto-js": "^4.2.1",
+    "@types/ws": "^8.5.10",
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "@types/compression": "^1.7.5",
+    "@types/morgan": "^1.9.9",
+    "@types/uuid": "^9.0.7",
+    "@types/elliptic": "^6.4.18",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.3.3",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.8",
+    "eslint": "^8.56.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "rimraf": "^5.0.5"
+  },
+  "keywords": [
+    "blockchain",
+    "proof-of-stake",
+    "cryptocurrency",
+    "vindex"
+  ],
+  "author": "Vindex Team",
+  "license": "MIT"
+}

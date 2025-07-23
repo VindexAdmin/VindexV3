@@ -1,0 +1,41 @@
+import { Block } from './Block';
+import { Transaction } from './Transaction';
+import { NetworkStats } from './types';
+export declare class VindexBlockchain {
+    private chain;
+    private pendingTransactions;
+    private pos;
+    private maxTransactionsPerBlock;
+    private blockTime;
+    private lastBlockTime;
+    private totalSupply;
+    private circulatingSupply;
+    private swapPairs;
+    private burnedTokens;
+    constructor();
+    private createGenesisBlock;
+    private initializeGenesisAccounts;
+    getLatestBlock(): Block;
+    addTransaction(transaction: Transaction): boolean;
+    private tryAutoMining;
+    mineBlock(): Block | null;
+    private processTransaction;
+    private processTransfer;
+    private processStake;
+    private processUnstake;
+    private processSwap;
+    private calculateSwapOutput;
+    private getPairKey;
+    createSwapPair(tokenA: string, tokenB: string, reserveA: number, reserveB: number): boolean;
+    burnTokens(amount: number): boolean;
+    getNetworkStats(): NetworkStats;
+    getBlock(index: number): Block | undefined;
+    getBlockByHash(hash: string): Block | undefined;
+    getTransaction(txId: string): any | undefined;
+    getBalance(address: string): number;
+    getPendingTransactions(): Transaction[];
+    getChainLength(): number;
+    isChainValid(): boolean;
+    exportChain(): any;
+}
+//# sourceMappingURL=VindexBlockchain.d.ts.map

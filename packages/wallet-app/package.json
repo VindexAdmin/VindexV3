@@ -1,0 +1,57 @@
+{
+  "name": "@vindex/wallet-app",
+  "version": "1.0.0",
+  "description": "Vindex Chain - Modern Cryptocurrency Wallet",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3005",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mysten/sui.js": "^0.54.1",
+    "@solana/spl-token": "^0.4.13",
+    "@solana/web3.js": "^1.98.2",
+    "axios": "^1.6.2",
+    "clsx": "^2.0.0",
+    "crypto-js": "^4.2.0",
+    "date-fns": "^2.30.0",
+    "framer-motion": "^10.16.16",
+    "lucide-react": "^0.300.0",
+    "next": "^14.0.4",
+    "qrcode": "^1.5.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-hook-form": "^7.48.2",
+    "react-hot-toast": "^2.4.1",
+    "react-icons": "^4.12.0",
+    "react-qr-code": "^2.0.12",
+    "recharts": "^2.8.0",
+    "tailwind-merge": "^2.2.0",
+    "xrpl": "^4.3.0"
+  },
+  "devDependencies": {
+    "@types/crypto-js": "^4.2.1",
+    "@types/node": "^20.10.5",
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18",
+    "autoprefixer": "^10.4.16",
+    "eslint": "^8.56.0",
+    "eslint-config-next": "^14.0.4",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.3.6",
+    "typescript": "^5.3.3"
+  },
+  "keywords": [
+    "vindex",
+    "blockchain",
+    "wallet",
+    "cryptocurrency",
+    "defi"
+  ],
+  "author": "Vindex Team",
+  "license": "MIT"
+}
