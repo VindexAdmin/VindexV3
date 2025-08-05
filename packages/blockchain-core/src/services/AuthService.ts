@@ -8,7 +8,7 @@ const prisma = new PrismaClient({
 });
 
 export class AuthService {
-  static async register(email: string, password: string, firstName?: string, lastName?: string) {
+  static async register(email: string, password: string): Promise<{ user: any; wallet: any; token: string; wallets: any[] }> {
     try {
       // Check if user already exists
       const existingUser = await prisma.user.findUnique({
@@ -16,81 +16,105 @@ export class AuthService {
       });
 
       if (existingUser) {
-        throw new Error('User already exists with this email');
+        throw new Error('User already exists');
       }
 
-      // Hash password
-      const passwordHash = await bcrypt.hash(password, 12);
+      const hashedPassword = await bcrypt.hash(password, 10);
 
-      // Create user
-      const user = await prisma.user.create({
-        data: {
-          email,
-          passwordHash,
-          firstName,
-          lastName
-        }
+      // Generate wallet keys
+      const { publicKey, encryptedPrivateKey } = this.generateWalletKeys();
+      const walletAddress = this.generateWalletAddress();
+
+      // Create user and wallet in a transaction
+      const result = await prisma.$transaction(async (tx) => {
+        // Create user
+        const user = await tx.user.create({
+          data: {
+            email,
+            passwordHash: hashedPassword,
+            emailVerified: false
+          }
+        });
+
+        // Create default wallet for user
+        const wallet = await tx.wallet.create({
+          data: {
+            address: walletAddress,
+            publicKey,
+            encryptedPrivateKey,
+            balance: '0',
+            isActive: true,
+            userId: user.id
+          }
+        });
+
+        return { user, wallet };
       });
 
       // Generate JWT token
-      const token = this.generateToken(user.id);
+      const token = jwt.sign(
+        { userId: result.user.id, email: result.user.email },
+        process.env.JWT_SECRET || 'default-secret',
+        { expiresIn: '24h' }
+      );
 
-      // Create session
+      // Create user session
       await prisma.userSession.create({
         data: {
-          userId: user.id,
+          userId: result.user.id,
           token,
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+          isActive: true,
+          createdAt: new Date(),
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
+        }
+      });
+
+      // Get all wallets for the user
+      const wallets = await prisma.wallet.findMany({
+        where: { userId: result.user.id, isActive: true },
+        select: {
+          id: true,
+          address: true,
+          name: true,
+          balance: true,
+          createdAt: true,
+          updatedAt: true
         }
       });
 
       return {
         user: {
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          createdAt: user.createdAt
+          id: result.user.id,
+          username: result.user.email, // For compatibility
+          email: result.user.email,
+          hashedPassword: result.user.passwordHash // For compatibility
         },
-        token
+        wallet: result.wallet,
+        token,
+        wallets
       };
     } catch (error) {
       throw error;
     }
   }
 
-  static async login(email: string, password: string) {
+  static async login(email: string, password: string): Promise<{ token: string; user: any; wallets?: any[] }> {
     try {
-      // Find user
       const user = await prisma.user.findUnique({
-        where: { email }
-      });
-
-      if (!user) {
-        throw new Error('Invalid email or password');
-      }
-
-      if (!user.isActive) {
-        throw new Error('Account is deactivated');
-      }
-
-      // Verify password
-      const isValidPassword = await bcrypt.compare(password, user.passwordHash);
-      if (!isValidPassword) {
-        throw new Error('Invalid email or password');
-      }
-
-      // Generate JWT token
-      const token = this.generateToken(user.id);
-
-      // Create session
-      await prisma.userSession.create({
-        data: {
-          userId: user.id,
-          token,
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+        where: { email },
+        include: {
+          wallets: true
         }
       });
+      
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      const isValid = await bcrypt.compare(password, user.passwordHash);
+      if (!isValid) {
+        throw new Error('Invalid password');
+      }
 
       // Update last login
       await prisma.user.update({
@@ -98,16 +122,47 @@ export class AuthService {
         data: { lastLoginAt: new Date() }
       });
 
-      return {
+      // Generate JWT token
+      const token = jwt.sign(
+        { userId: user.id, email: user.email },
+        process.env.JWT_SECRET || 'default-secret',
+        { expiresIn: '24h' }
+      );
+
+      // Create user session
+      await prisma.userSession.create({
+        data: {
+          userId: user.id,
+          token,
+          isActive: true,
+          createdAt: new Date(),
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
+        }
+      });
+
+      // Get all wallets for the user
+      const wallets = await prisma.wallet.findMany({
+        where: { userId: user.id, isActive: true },
+        select: {
+          id: true,
+          address: true,
+          name: true,
+          balance: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      });
+
+      return { 
+        token, 
         user: {
           id: user.id,
+          username: user.email, // For compatibility
           email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
           createdAt: user.createdAt,
-          lastLoginAt: new Date()
+          hashedPassword: user.passwordHash // For compatibility
         },
-        token
+        wallets
       };
     } catch (error) {
       throw error;
@@ -236,6 +291,24 @@ export class AuthService {
     } catch (error) {
       throw error;
     }
+  }
+
+  // Private helper methods
+  private static generateWalletAddress(): string {
+    const randomBytes = crypto.randomBytes(20);
+    return `VDX${randomBytes.toString('hex')}`;
+  }
+
+  private static generateWalletKeys(): { publicKey: string; encryptedPrivateKey: string } {
+    const privateKey = crypto.randomBytes(32).toString('hex');
+    const publicKey = crypto.randomBytes(32).toString('hex');
+    
+    // Simple encryption for demo - in production use proper encryption
+    const cipher = crypto.createCipher('aes192', process.env.ENCRYPTION_KEY || 'default-key');
+    let encryptedPrivateKey = cipher.update(privateKey, 'utf8', 'hex');
+    encryptedPrivateKey += cipher.final('hex');
+
+    return { publicKey, encryptedPrivateKey };
   }
 }
 

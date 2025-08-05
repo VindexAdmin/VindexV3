@@ -1,10 +1,23 @@
 // Vindex Chain API Client
-export class VindexAPI {
+interface WalletData {
+  mnemonic: string;
+  address: string;
+  privateKey: string;
+}
+
+interface ApiResponse {
+  success: boolean;
+  data: any;
+  error?: string;
+}
+
+class VindexAPI {
   private baseURL: string;
   private token: string | null = null;
 
-  constructor(baseURL: string = 'http://localhost:3001') {
-    this.baseURL = baseURL;
+  constructor(baseURL: string = 'http://localhost:3005') {
+    // If empty string or '/', use relative paths for Next.js proxy
+    this.baseURL = baseURL === '' || baseURL === '/' ? '' : baseURL;
     // Load token from localStorage if available
     if (typeof window !== 'undefined') {
       this.token = localStorage.getItem('vindex_token');
@@ -22,32 +35,98 @@ export class VindexAPI {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
 
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    });
+    try {
+      console.log(`Making API request to ${endpoint}...`, {
+        method: options.method,
+        hasBody: !!options.body
+      });
 
-    const data = await response.json();
+      const response = await fetch(url, {
+        ...options,
+        headers,
+      });
 
-    if (!response.ok) {
-      throw new Error(data.error || 'Request failed');
+      console.log(`API response status:`, {
+        status: response.status,
+        ok: response.ok,
+        statusText: response.statusText
+      });
+
+      const data = await response.json();
+      console.log('API response data:', {
+        success: data.success,
+        hasError: !!data.error,
+        error: data.error
+      });
+
+      if (!response.ok) {
+        const errorMessage = data.error || response.statusText || 'Request failed';
+        console.error(`API Error (${response.status}):`, {
+          message: errorMessage,
+          details: data
+        });
+        throw new Error(errorMessage);
+      }
+
+      return data;
+    } catch (error) {
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        console.error('Network error:', error);
+        throw new Error('Unable to connect to the server. Please check your internet connection.');
+      }
+      console.error('Request error:', {
+        error,
+        message: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
     }
-
-    return data;
   }
 
   // Authentication methods
-  async register(email: string, password: string, firstName?: string, lastName?: string) {
-    const data = await this.request('/api/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({ email, password, firstName, lastName }),
-    });
+  async register(email: string, password: string, firstName?: string, lastName?: string, walletData?: WalletData) {
+    try {
+      console.log('Making registration request to API...', {
+        email,
+        hasPassword: !!password,
+        firstName,
+        lastName,
+        endpoint: '/api/auth/register'
+      });
 
-    if (data.success && data.data.token) {
-      this.setToken(data.data.token);
+      const data = await this.request('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({ 
+          email, 
+          password, 
+          firstName, 
+          lastName,
+          wallet: walletData 
+        }),
+      });
+
+      console.log('Registration API response:', {
+        success: data.success,
+        hasToken: !!data.data?.token,
+        hasUser: !!data.data?.user,
+        error: data.error
+      });
+
+      if (!data.success) {
+        throw new Error(data.error || 'Registration failed');
+      }
+
+      if (data.success && data.data.token) {
+        console.log('Setting authentication token...');
+        this.setToken(data.data.token);
+      } else {
+        throw new Error('No authentication token received');
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Registration error:', error);
+      throw new Error(error instanceof Error ? error.message : 'Registration failed. Please try again.');
     }
-
-    return data;
   }
 
   async login(email: string, password: string) {
@@ -104,6 +183,10 @@ export class VindexAPI {
       method: 'POST',
       body: JSON.stringify(transaction),
     });
+  }
+
+  async createTransaction(transactionData: { from: string; to: string; amount: number; memo?: string }) {
+    return this.sendTransaction(transactionData);
   }
 
   async getTransactionPool() {

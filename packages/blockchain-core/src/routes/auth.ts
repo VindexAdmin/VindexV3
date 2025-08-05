@@ -62,18 +62,14 @@ router.post('/register', authLimiter, registerValidation, async (req: Request, r
     }
 
     const { email, password, firstName, lastName } = req.body;
-
-    const result = await AuthService.register(email, password, firstName, lastName);
-    
-    // Create a default wallet for the new user
-    const wallet = await AuthService.createWallet(result.user.id, 'Main Wallet');
-
+    const result = await AuthService.register(email, password);
     res.status(201).json({
       success: true,
       data: {
         user: result.user,
         token: result.token,
-        wallet: wallet
+        wallet: result.wallet,
+        wallets: result.wallets
       }
     });
   } catch (error: any) {

@@ -40,6 +40,15 @@ export default function Staking() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [navHeight, setNavHeight] = useState(0);
+
+  useEffect(() => {
+    const nav = document.querySelector('nav');
+    if (nav) {
+      setNavHeight(nav.clientHeight);
+    }
+  }, []);
+
 
   // Mock data for now - would be fetched from API
   const mockValidators: Validator[] = [
@@ -134,15 +143,12 @@ export default function Staking() {
 
     setIsLoading(true);
     setError('');
-    
     try {
       // This would be an actual API call
       await new Promise(resolve => setTimeout(resolve, 2000));
-      
       setSuccess(`Successfully staked ${amount} VDX with ${validators.find(v => v.id === selectedValidator)?.name}`);
       setStakeAmount('');
       setSelectedValidator('');
-      
       // Refresh staking positions
       // fetchStakingPositions();
     } catch (error: any) {
@@ -167,244 +173,177 @@ export default function Staking() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white">
       {/* Navigation */}
       <Navigation />
 
-      {/* Header */}
-      <div className="bg-gradient-to-r from-red-600 to-red-800 text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          <div className="text-center">
-            <h1 className="text-4xl font-bold mb-4">Stake Your VDX</h1>
-            <p className="text-xl text-red-100 max-w-2xl mx-auto">
-              Secure the Vindex network and earn rewards by staking your VDX tokens with trusted validators
-            </p>
+      <div className="pt-20">
+        {/* Modern Header */}
+        <header className="relative w-full bg-gradient-to-r from-red-600 to-red-800 text-white py-16 flex flex-col items-center justify-center shadow-lg">
+          <div className="max-w-2xl w-full px-4 text-center">
+            <h1 className="text-5xl font-extrabold tracking-tight mb-4 drop-shadow-lg">Stake Your VDX</h1>
+            <p className="text-xl text-red-100 mb-6">Secure the Vindex network and earn rewards by staking your VDX tokens with trusted validators.</p>
           </div>
-        </div>
-      </div>
+        </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Tab Navigation */}
-        <div className="mb-8">
-          <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8">
-              {[
-                { id: 'overview', label: 'Overview', icon: TrendingUp },
-                { id: 'validators', label: 'Validators', icon: Shield },
-                { id: 'stake', label: 'Stake Tokens', icon: Award },
-                { id: 'positions', label: 'My Stakes', icon: Wallet }
-              ].map((tab) => {
-                const Icon = tab.icon;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`flex items-center space-x-2 py-2 px-1 border-b-2 font-medium text-sm ${
-                      activeTab === tab.id
-                        ? 'border-red-500 text-red-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" />
-                    <span>{tab.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
-          </div>
+        {/* Main Content */}
+        <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-10">
+        {/* Card Tabs */}
+        <div className="flex flex-wrap gap-2 justify-center mb-10">
+          {[
+            { id: 'overview', label: 'Overview', icon: TrendingUp },
+            { id: 'validators', label: 'Validators', icon: Shield },
+            { id: 'stake', label: 'Stake Tokens', icon: Award },
+            { id: 'positions', label: 'My Stakes', icon: Wallet }
+          ].map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-6 py-2 rounded-full font-semibold text-base transition border-2 shadow-sm ${
+                  activeTab === tab.id
+                    ? 'bg-red-600 text-white border-red-600 shadow-lg'
+                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+                }`}
+              >
+                <Icon className="h-5 w-5" />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Tab Content */}
-        {activeTab === 'overview' && (
-          <div className="space-y-8">
-            {/* Network Statistics */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white p-6 rounded-lg shadow-sm border">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    <Shield className="h-8 w-8 text-red-600" />
-                  </div>
-                  <div className="ml-5 w-0 flex-1">
-                    <dl>
-                      <dt className="text-sm font-medium text-gray-500 truncate">
-                        Total Staked
-                      </dt>
-                      <dd className="text-lg font-medium text-gray-900">
-                        {formatNumber(125000000)} VDX
-                      </dd>
-                    </dl>
-                  </div>
+        <section className="w-full">
+          {activeTab === 'overview' && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+              <div className="bg-white rounded-2xl shadow p-6 flex flex-col items-center">
+                <Shield className="h-8 w-8 text-red-600 mb-2" />
+                <div className="text-center">
+                  <div className="text-sm text-gray-500">Total Staked</div>
+                  <div className="text-2xl font-bold text-gray-900">{formatNumber(125000000)} VDX</div>
                 </div>
               </div>
-
-              <div className="bg-white p-6 rounded-lg shadow-sm border">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    <Users className="h-8 w-8 text-green-600" />
-                  </div>
-                  <div className="ml-5 w-0 flex-1">
-                    <dl>
-                      <dt className="text-sm font-medium text-gray-500 truncate">
-                        Active Validators
-                      </dt>
-                      <dd className="text-lg font-medium text-gray-900">
-                        {validators.filter(v => v.status === 'active').length}
-                      </dd>
-                    </dl>
-                  </div>
+              <div className="bg-white rounded-2xl shadow p-6 flex flex-col items-center">
+                <Award className="h-8 w-8 text-green-600 mb-2" />
+                <div className="text-center">
+                  <div className="text-sm text-gray-500">Your Total Staked</div>
+                  <div className="text-2xl font-bold text-gray-900">{formatNumber(totalStaked)} VDX</div>
                 </div>
               </div>
-
-              <div className="bg-white p-6 rounded-lg shadow-sm border">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    <TrendingUp className="h-8 w-8 text-blue-600" />
-                  </div>
-                  <div className="ml-5 w-0 flex-1">
-                    <dl>
-                      <dt className="text-sm font-medium text-gray-500 truncate">
-                        Average APY
-                      </dt>
-                      <dd className="text-lg font-medium text-gray-900">
-                        {validators.length > 0 ? (validators.reduce((sum, v) => sum + v.apy, 0) / validators.length).toFixed(1) : 0}%
-                      </dd>
-                    </dl>
-                  </div>
+              <div className="bg-white rounded-2xl shadow p-6 flex flex-col items-center">
+                <DollarSign className="h-8 w-8 text-blue-600 mb-2" />
+                <div className="text-center">
+                  <div className="text-sm text-gray-500">Total Rewards</div>
+                  <div className="text-2xl font-bold text-green-600">{totalRewards.toFixed(2)} VDX</div>
                 </div>
               </div>
             </div>
+          )}
 
-            {/* User Stats (if authenticated) */}
-            {isAuthenticated && (
-              <div className="bg-white p-6 rounded-lg shadow-sm border">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Your Staking Summary</h3>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div>
-                    <p className="text-sm text-gray-500">Total Staked</p>
-                    <p className="text-2xl font-bold text-gray-900">{formatNumber(totalStaked)} VDX</p>
+          {activeTab === 'stake' && (
+            <div className="max-w-2xl mx-auto">
+              <div className="bg-white rounded-2xl shadow-lg border p-8">
+                <h3 className="text-2xl font-bold text-gray-900 mb-6">Stake Your VDX Tokens</h3>
+                {/* Stake form */}
+                {!isAuthenticated ? (
+                  <div className="text-center py-8">
+                    <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-600 mb-4">Please log in to stake your tokens</p>
+                    <Link
+                      href="/"
+                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
+                    >
+                      Go to Login
+                    </Link>
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Total Rewards</p>
-                    <p className="text-2xl font-bold text-green-600">{totalRewards.toFixed(2)} VDX</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Average APY</p>
-                    <p className="text-2xl font-bold text-blue-600">{averageAPY.toFixed(1)}%</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Active Positions</p>
-                    <p className="text-2xl font-bold text-gray-900">{stakingPositions.length}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* How Staking Works */}
-            <div className="bg-white p-6 rounded-lg shadow-sm border">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">How Staking Works</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="text-center">
-                  <div className="bg-red-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <Wallet className="h-6 w-6 text-red-600" />
-                  </div>
-                  <h4 className="font-medium text-gray-900 mb-2">1. Choose Validator</h4>
-                  <p className="text-sm text-gray-600">Select a validator based on commission, performance, and uptime</p>
-                </div>
-                <div className="text-center">
-                  <div className="bg-green-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <DollarSign className="h-6 w-6 text-green-600" />
-                  </div>
-                  <h4 className="font-medium text-gray-900 mb-2">2. Stake Tokens</h4>
-                  <p className="text-sm text-gray-600">Delegate your VDX tokens to help secure the network</p>
-                </div>
-                <div className="text-center">
-                  <div className="bg-blue-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <Award className="h-6 w-6 text-blue-600" />
-                  </div>
-                  <h4 className="font-medium text-gray-900 mb-2">3. Earn Rewards</h4>
-                  <p className="text-sm text-gray-600">Receive staking rewards for participating in network consensus</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'validators' && (
-          <div className="bg-white rounded-lg shadow-sm border">
-            <div className="p-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-6">Active Validators</h3>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Validator
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Commission
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Total Stake
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        APY
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Uptime
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {validators.map((validator) => (
-                      <tr key={validator.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div>
-                            <div className="text-sm font-medium text-gray-900">
-                              {validator.name}
-                            </div>
-                            <div className="text-sm text-gray-500 font-mono">
-                              {validator.address.slice(0, 20)}...
-                            </div>
+                ) : (
+                  <div className="space-y-6">
+                    {error && (
+                      <div className="p-4 bg-red-50 border border-red-200 rounded-md">
+                        <p className="text-red-600">{error}</p>
+                      </div>
+                    )}
+                    {success && (
+                      <div className="p-4 bg-green-50 border border-green-200 rounded-md">
+                        <p className="text-green-600">{success}</p>
+                      </div>
+                    )}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Select Validator
+                      </label>
+                      <select
+                        value={selectedValidator}
+                        onChange={(e) => setSelectedValidator(e.target.value)}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500"
+                      >
+                        <option value="">Choose a validator...</option>
+                        {validators.filter(v => v.status === 'active').map((validator) => (
+                          <option key={validator.id} value={validator.id}>
+                            {validator.name} - {validator.apy}% APY (Commission: {validator.commission}%)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Amount to Stake (VDX)
+                      </label>
+                      <input
+                        type="number"
+                        value={stakeAmount}
+                        onChange={(e) => setStakeAmount(e.target.value)}
+                        placeholder="Enter amount..."
+                        className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500"
+                      />
+                      <p className="text-sm text-gray-500 mt-1">
+                        Available: {wallets?.[0]?.balance || 0} VDX
+                      </p>
+                    </div>
+                    {selectedValidator && stakeAmount && (
+                      <div className="bg-gray-50 p-4 rounded-md">
+                        <h4 className="font-medium text-gray-900 mb-2">Staking Summary</h4>
+                        <div className="space-y-1 text-sm">
+                          <div className="flex justify-between">
+                            <span>Validator:</span>
+                            <span>{validators.find(v => v.id === selectedValidator)?.name}</span>
                           </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {validator.commission}%
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {formatNumber(validator.stake)} VDX
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-medium">
-                          {validator.apy}%
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {validator.uptime}%
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(validator.status)}`}>
-                            {validator.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                          <div className="flex justify-between">
+                            <span>Amount:</span>
+                            <span>{stakeAmount} VDX</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Expected APY:</span>
+                            <span className="text-green-600">{validators.find(v => v.id === selectedValidator)?.apy}%</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Commission:</span>
+                            <span>{validators.find(v => v.id === selectedValidator)?.commission}%</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <button
+                      onClick={handleStake}
+                      disabled={isLoading || !stakeAmount || !selectedValidator}
+                      className="w-full bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    >
+                      {isLoading ? 'Staking...' : 'Stake Tokens'}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {activeTab === 'stake' && (
-          <div className="max-w-2xl mx-auto">
-            <div className="bg-white rounded-lg shadow-sm border p-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-6">Stake Your VDX Tokens</h3>
-              
+          {activeTab === 'positions' && (
+            <div className="space-y-6">
               {!isAuthenticated ? (
                 <div className="text-center py-8">
-                  <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-600 mb-4">Please log in to stake your tokens</p>
+                  <Wallet className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600 mb-4">Please log in to view your staking positions</p>
                   <Link
                     href="/"
                     className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
@@ -412,163 +351,65 @@ export default function Staking() {
                     Go to Login
                   </Link>
                 </div>
+              ) : stakingPositions.length === 0 ? (
+                <div className="text-center py-8">
+                  <Award className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600 mb-4">You don't have any active staking positions</p>
+                  <button
+                    onClick={() => setActiveTab('stake')}
+                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
+                  >
+                    Start Staking
+                  </button>
+                </div>
               ) : (
-                <div className="space-y-6">
-                  {error && (
-                    <div className="p-4 bg-red-50 border border-red-200 rounded-md">
-                      <p className="text-red-600">{error}</p>
-                    </div>
-                  )}
-
-                  {success && (
-                    <div className="p-4 bg-green-50 border border-green-200 rounded-md">
-                      <p className="text-green-600">{success}</p>
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Select Validator
-                    </label>
-                    <select
-                      value={selectedValidator}
-                      onChange={(e) => setSelectedValidator(e.target.value)}
-                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500"
-                    >
-                      <option value="">Choose a validator...</option>
-                      {validators.filter(v => v.status === 'active').map((validator) => (
-                        <option key={validator.id} value={validator.id}>
-                          {validator.name} - {validator.apy}% APY (Commission: {validator.commission}%)
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Amount to Stake (VDX)
-                    </label>
-                    <input
-                      type="number"
-                      value={stakeAmount}
-                      onChange={(e) => setStakeAmount(e.target.value)}
-                      placeholder="Enter amount..."
-                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500"
-                    />
-                    <p className="text-sm text-gray-500 mt-1">
-                      Available: {wallets?.[0]?.balance || 0} VDX
-                    </p>
-                  </div>
-
-                  {selectedValidator && stakeAmount && (
-                    <div className="bg-gray-50 p-4 rounded-md">
-                      <h4 className="font-medium text-gray-900 mb-2">Staking Summary</h4>
-                      <div className="space-y-1 text-sm">
-                        <div className="flex justify-between">
-                          <span>Validator:</span>
-                          <span>{validators.find(v => v.id === selectedValidator)?.name}</span>
+                <div className="grid gap-6">
+                  {stakingPositions.map((position) => (
+                    <div key={position.id} className="bg-white rounded-lg shadow-sm border p-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-lg font-medium text-gray-900">
+                          {position.validatorName}
+                        </h4>
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(position.status)}`}>
+                          {position.status}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                          <p className="text-sm text-gray-500">Staked Amount</p>
+                          <p className="text-lg font-semibold text-gray-900">{formatNumber(position.amount)} VDX</p>
                         </div>
-                        <div className="flex justify-between">
-                          <span>Amount:</span>
-                          <span>{stakeAmount} VDX</span>
+                        <div>
+                          <p className="text-sm text-gray-500">Rewards Earned</p>
+                          <p className="text-lg font-semibold text-green-600">{position.rewards.toFixed(2)} VDX</p>
                         </div>
-                        <div className="flex justify-between">
-                          <span>Expected APY:</span>
-                          <span className="text-green-600">{validators.find(v => v.id === selectedValidator)?.apy}%</span>
+                        <div>
+                          <p className="text-sm text-gray-500">APY</p>
+                          <p className="text-lg font-semibold text-blue-600">{position.apy}%</p>
                         </div>
-                        <div className="flex justify-between">
-                          <span>Commission:</span>
-                          <span>{validators.find(v => v.id === selectedValidator)?.commission}%</span>
+                        <div>
+                          <p className="text-sm text-gray-500">Start Date</p>
+                          <p className="text-lg font-semibold text-gray-900">
+                            {new Date(position.startDate).toLocaleDateString()}
+                          </p>
                         </div>
                       </div>
+                      <div className="mt-4 flex space-x-3">
+                        <button className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm">
+                          Claim Rewards
+                        </button>
+                        <button className="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 text-sm">
+                          Unstake
+                        </button>
+                      </div>
                     </div>
-                  )}
-
-                  <button
-                    onClick={handleStake}
-                    disabled={isLoading || !stakeAmount || !selectedValidator}
-                    className="w-full bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                  >
-                    {isLoading ? 'Staking...' : 'Stake Tokens'}
-                  </button>
+                  ))}
                 </div>
               )}
             </div>
-          </div>
-        )}
-
-        {activeTab === 'positions' && (
-          <div className="space-y-6">
-            {!isAuthenticated ? (
-              <div className="text-center py-8">
-                <Wallet className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600 mb-4">Please log in to view your staking positions</p>
-                <Link
-                  href="/"
-                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
-                >
-                  Go to Login
-                </Link>
-              </div>
-            ) : stakingPositions.length === 0 ? (
-              <div className="text-center py-8">
-                <Award className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600 mb-4">You don't have any active staking positions</p>
-                <button
-                  onClick={() => setActiveTab('stake')}
-                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
-                >
-                  Start Staking
-                </button>
-              </div>
-            ) : (
-              <div className="grid gap-6">
-                {stakingPositions.map((position) => (
-                  <div key={position.id} className="bg-white rounded-lg shadow-sm border p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <h4 className="text-lg font-medium text-gray-900">
-                        {position.validatorName}
-                      </h4>
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(position.status)}`}>
-                        {position.status}
-                      </span>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div>
-                        <p className="text-sm text-gray-500">Staked Amount</p>
-                        <p className="text-lg font-semibold text-gray-900">{formatNumber(position.amount)} VDX</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-gray-500">Rewards Earned</p>
-                        <p className="text-lg font-semibold text-green-600">{position.rewards.toFixed(2)} VDX</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-gray-500">APY</p>
-                        <p className="text-lg font-semibold text-blue-600">{position.apy}%</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-gray-500">Start Date</p>
-                        <p className="text-lg font-semibold text-gray-900">
-                          {new Date(position.startDate).toLocaleDateString()}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    <div className="mt-4 flex space-x-3">
-                      <button className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm">
-                        Claim Rewards
-                      </button>
-                      <button className="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 text-sm">
-                        Unstake
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+          )}
+        </section>
+      </main>
       </div>
     </div>
   );

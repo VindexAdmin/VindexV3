@@ -1,6 +1,7 @@
 import { Block } from './Block';
 import { Transaction } from './Transaction';
 import { ProofOfStake } from '../consensus/ProofOfStake';
+import { GovernanceEngine } from '../governance/GovernanceEngine';
 import { NetworkStats, SwapPair } from './types';
 import * as crypto from 'crypto-js';
 
@@ -8,6 +9,7 @@ export class VindexBlockchain {
   private chain: Block[] = [];
   private pendingTransactions: Transaction[] = [];
   private pos: ProofOfStake;
+  private governance: GovernanceEngine;
   private maxTransactionsPerBlock = 1000;
   private blockTime = 10000; // 10 seconds
   private lastBlockTime = 0;
@@ -18,6 +20,7 @@ export class VindexBlockchain {
 
   constructor() {
     this.pos = new ProofOfStake();
+    this.governance = new GovernanceEngine(this, this.pos);
     this.createGenesisBlock();
     this.initializeGenesisAccounts();
   }
@@ -382,7 +385,7 @@ export class VindexBlockchain {
 
     // Calculate TPS (transactions per second)
     const totalTransactions = this.chain.reduce((sum, block) => sum + block.transactionCount, 0);
-    const tps = totalTime > 0 ? (totalTransactions * 1000) / totalTime : 0;
+    const tps = totalTime > 0 ? (totalTransactions * 5000) / totalTime : 0;
 
     return {
       totalSupply: this.totalSupply,
@@ -461,6 +464,13 @@ export class VindexBlockchain {
     }
 
     return true;
+  }
+
+  /**
+   * Get governance engine instance
+   */
+  public getGovernanceEngine(): GovernanceEngine {
+    return this.governance;
   }
 
   /**

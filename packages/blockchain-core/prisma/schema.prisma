@@ -1,0 +1,254 @@
+// Vindex Chain Database Schema
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Users and Authentication
+model User {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  passwordHash    String   @map("password_hash")
+  firstName       String?  @map("first_name")
+  lastName        String?  @map("last_name")
+  isActive        Boolean  @default(true) @map("is_active")
+  emailVerified   Boolean  @default(false) @map("email_verified")
+  twoFactorEnabled Boolean @default(false) @map("two_factor_enabled")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  lastLoginAt     DateTime? @map("last_login_at")
+  
+  // Relations
+  wallets         Wallet[]
+  sessions        UserSession[]
+  transactions    Transaction[]
+  bridgeTransactions BridgeTransaction[]
+  
+  @@map("users")
+}
+
+// User Sessions for JWT management
+model UserSession {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  token       String   @unique
+  deviceInfo  String?  @map("device_info")
+  ipAddress   String?  @map("ip_address")
+  userAgent   String?  @map("user_agent")
+  isActive    Boolean  @default(true) @map("is_active")
+  expiresAt   DateTime @map("expires_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  lastUsedAt  DateTime @default(now()) @map("last_used_at")
+  
+  // Relations
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("user_sessions")
+}
+
+// Wallets
+model Wallet {
+  id                    String   @id @default(cuid())
+  userId                String   @map("user_id")
+  address               String   @unique
+  publicKey             String   @map("public_key")
+  encryptedPrivateKey   String   @map("encrypted_private_key")
+  encryptedMnemonic     String   @map("encrypted_mnemonic")
+  salt                  String   // For key derivation
+  iv                    String   // For encryption
+  name                  String   @default("Main Wallet")
+  balance               String   @default("0") // Store as string to avoid precision issues
+  isActive              Boolean  @default(true) @map("is_active")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sentTransactions      Transaction[] @relation("FromWallet")
+  receivedTransactions  Transaction[] @relation("ToWallet")
+  
+  @@map("wallets")
+}
+
+// Blockchain Blocks
+model Block {
+  id               String   @id @default(cuid())
+  index            Int      @unique
+  hash             String   @unique
+  previousHash     String   @map("previous_hash")
+  merkleRoot       String   @map("merkle_root")
+  stateRoot        String   @map("state_root")
+  timestamp        DateTime
+  validator        String
+  nonce            String
+  difficulty       Int      @default(1)
+  transactionCount Int      @map("transaction_count")
+  totalFees        String   @map("total_fees") @default("0")
+  gasUsed          String   @map("gas_used") @default("0")
+  gasLimit         String   @map("gas_limit") @default("1000000")
+  signature        String
+  size             Int      @default(0) // Block size in bytes
+  createdAt        DateTime @default(now()) @map("created_at")
+  
+  // Relations
+  transactions     Transaction[]
+  
+  @@map("blocks")
+}
+
+// Transactions
+model Transaction {
+  id             String    @id @default(cuid())
+  hash           String    @unique
+  fromAddress    String    @map("from_address")
+  toAddress      String    @map("to_address")
+  userId         String?   @map("user_id")
+  fromWalletId   String?   @map("from_wallet_id")
+  toWalletId     String?   @map("to_wallet_id")
+  blockId        String?   @map("block_id")
+  amount         Decimal   @default(0)
+  nonce          Int       @default(0)
+  gasPrice       Decimal   @default(1) @map("gas_price")
+  gasLimit       Decimal   @default(21000) @map("gas_limit")
+  gasUsed        Decimal?  @map("gas_used")
+  type           String    @default("TRANSFER")
+  status         String    @default("PENDING")
+  timestamp      DateTime  @default(now())
+  blockNumber    Int?      @map("block_number")
+  rawTransaction String?   @map("raw_transaction")
+  receipt        Json?
+  data           String?
+  error          String?
+
+  // Relations
+  user           User?     @relation(fields: [userId], references: [id])
+  fromWallet     Wallet?   @relation("FromWallet", fields: [fromWalletId], references: [id])
+  toWallet       Wallet?   @relation("ToWallet", fields: [toWalletId], references: [id])
+  block          Block?    @relation(fields: [blockId], references: [id])
+
+  @@index([fromAddress])
+  @@index([toAddress])
+  @@index([status])
+  @@index([timestamp])
+  @@index([userId])
+  @@index([fromWalletId])
+  @@index([toWalletId])
+  @@index([blockId])
+}
+model BridgeTransaction {
+  id                 String                @id @default(cuid())
+  fromNetwork        String                @map("from_network")
+  toNetwork          String                @map("to_network")
+  fromToken          String                @map("from_token")
+  toToken            String                @map("to_token")
+  fromAmount         String                @map("from_amount")
+  toAmount           String                @map("to_amount")
+  exchangeRate       String                @map("exchange_rate")
+  bridgeFee          String                @map("bridge_fee")
+  userAddress        String                @map("user_address")
+  destinationAddress String?               @map("destination_address")
+  status             BridgeStatus          @default(PENDING)
+  txHash             String?               @map("tx_hash")
+  sourceTxHash       String?               @map("source_tx_hash")
+  destTxHash         String?               @map("dest_tx_hash")
+  error              String?
+  retryAttempt       Int                   @default(0) @map("retry_attempt")
+  maxRetries         Int                   @default(3) @map("max_retries")
+  totalAttempts      Int                   @default(0) @map("total_attempts")
+  estimatedCompletion DateTime?            @map("estimated_completion")
+  timestamp          DateTime              @default(now())
+  completedAt        DateTime?             @map("completed_at")
+  userId             String?               @map("user_id")
+  
+  // Relations
+  user               User?                 @relation(fields: [userId], references: [id])
+  
+  @@map("bridge_transactions")
+}
+
+// Network Statistics
+model NetworkStats {
+  id                String   @id @default(cuid())
+  chainLength       Int      @map("chain_length")
+  totalSupply       String   @map("total_supply")
+  circulatingSupply String   @map("circulating_supply")
+  totalStaked       String   @map("total_staked")
+  activeValidators  Int      @map("active_validators")
+  avgBlockTime      Float    @map("avg_block_time") // in seconds
+  tps               Float    // transactions per second
+  totalTransactions Int      @map("total_transactions")
+  networkHashrate   String   @map("network_hashrate") @default("0")
+  difficulty        Int      @default(1)
+  timestamp         DateTime @default(now())
+  
+  @@map("network_stats")
+}
+
+// Validator Information
+model Validator {
+  id              String   @id @default(cuid())
+  address         String   @unique
+  publicKey       String   @map("public_key")
+  stake           String   @default("0")
+  commission      Float    @default(0.05) // 5% default commission
+  isActive        Boolean  @default(false) @map("is_active")
+  blocksProduced  Int      @default(0) @map("blocks_produced")
+  lastBlockTime   DateTime? @map("last_block_time")
+  uptime          Float    @default(0.0) // percentage
+  reputation      Float    @default(100.0)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  
+  @@map("validators")
+}
+
+// Staking Positions
+model StakingPosition {
+  id               String   @id @default(cuid())
+  walletAddress    String   @map("wallet_address")
+  validatorAddress String   @map("validator_address")
+  amount           String   // Amount staked
+  rewards          String   @default("0") // Accumulated rewards
+  startDate        DateTime @default(now()) @map("start_date")
+  unstakeDate      DateTime? @map("unstake_date")
+  isActive         Boolean  @default(true) @map("is_active")
+  lockPeriod       Int      @default(30) @map("lock_period") // days
+  
+  @@map("staking_positions")
+}
+
+// Enums
+enum TransactionType {
+  TRANSFER
+  STAKE
+  UNSTAKE
+  SWAP
+  BRIDGE
+  CONTRACT_CALL
+  CONTRACT_DEPLOY
+  FEE
+}
+
+enum TransactionStatus {
+  PENDING
+  PROCESSING
+  CONFIRMED
+  FAILED
+  DROPPED
+}
+
+enum BridgeStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REFUNDED
+}

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Activity, Users, Server, TrendingUp, AlertTriangle, Shield, Zap, Database, Settings, Lock, Play, Pause, RotateCcw } from 'lucide-react';
 import { useAuth } from '../../../lib/auth-context';
 import Navigation from '../../components/ui/Navigation';
+import { useRef, useLayoutEffect } from 'react';
 
 interface ValidatorInfo {
   id: string;
@@ -40,6 +41,14 @@ interface AdminAction {
 }
 
 export default function AdminDashboard() {
+  // Hook para calcular altura del Navigation
+  const [navHeight, setNavHeight] = useState(0);
+  useLayoutEffect(() => {
+    const nav = document.querySelector('nav');
+    if (nav) {
+      setNavHeight(nav.getBoundingClientRect().height);
+    }
+  }, []);
   const { user, api, isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
   const [validators, setValidators] = useState<ValidatorInfo[]>([]);
@@ -201,7 +210,7 @@ export default function AdminDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50" style={{ paddingTop: navHeight ? navHeight + 16 : 80 }}>
       {/* Navigation */}
       <Navigation />
 

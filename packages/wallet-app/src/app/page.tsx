@@ -9,6 +9,8 @@ import SimplePasswordInput from '../components/ui/SimplePasswordInput';
 import WalletPanel from '../components/ui/WalletPanel';
 import Navigation from '../components/ui/Navigation';
 import { Wallet as WalletIcon } from 'lucide-react';
+import { HDNode } from '@ethersproject/hdnode';
+import crypto from 'crypto';
 
 interface AuthFormProps {
   onClose: () => void;
@@ -36,6 +38,8 @@ const AuthModal = ({ onClose, isLogin, onToggle }: AuthFormProps) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showRecoveryPhrase, setShowRecoveryPhrase] = useState(false);
+  const [walletInfo, setWalletInfo] = useState<{mnemonic: string; address: string} | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,28 +60,62 @@ const AuthModal = ({ onClose, isLogin, onToggle }: AuthFormProps) => {
       return;
     }
 
-    if (!isLogin && formData.password.length < 8) {
-      setError('Password must be at least 8 characters long');
-      setIsLoading(false);
-      return;
+    if (!isLogin) {
+      // Password validation
+      const hasUpperCase = /[A-Z]/.test(formData.password);
+      const hasLowerCase = /[a-z]/.test(formData.password);
+      const hasNumber = /\d/.test(formData.password);
+      const hasSpecialChar = /[@$!%*?&]/.test(formData.password);
+      const isLongEnough = formData.password.length >= 8;
+
+      if (!isLongEnough || !hasUpperCase || !hasLowerCase || !hasNumber || !hasSpecialChar) {
+        setError('Password must contain at least:\n- 8 characters\n- One uppercase letter\n- One lowercase letter\n- One number\n- One special character (@$!%*?&)');
+        setIsLoading(false);
+        return;
+      }
     }
 
     try {
       if (isLogin) {
         await login(formData.email, formData.password);
         setSuccess('Login successful!');
+        setTimeout(() => onClose(), 1500);
       } else {
+        console.log('Starting registration process...', {
+          email: formData.email,
+          hasPassword: !!formData.password,
+          firstName: formData.firstName,
+          lastName: formData.lastName
+        });
+
+        // Generate wallet using HDNode
+        const randomBytes = crypto.randomBytes(16);
+        const walletNode = HDNode.fromSeed(randomBytes);
+        const walletAccount = walletNode.derivePath("m/44'/60'/0'/0/0");
+        
+        const walletData = {
+          mnemonic: walletNode.mnemonic?.phrase || generateMnemonic(),
+          address: walletAccount.address,
+          privateKey: walletAccount.privateKey
+        };
+
         await register(
           formData.email,
           formData.password,
           formData.firstName || undefined,
-          formData.lastName || undefined
+          formData.lastName || undefined,
+          walletData
         );
-        setSuccess('Account created successfully! Your wallet has been automatically created.');
+        
+        setWalletInfo({
+          mnemonic: walletData.mnemonic,
+          address: walletData.address
+        });
+        setShowRecoveryPhrase(true);
+        setSuccess('Account created successfully!');
       }
-      
-      setTimeout(() => onClose(), 1500);
     } catch (err: any) {
+      console.error('Registration error:', err);
       setError(err.message || 'Authentication failed. Please try again.');
     } finally {
       setIsLoading(false);
@@ -85,14 +123,123 @@ const AuthModal = ({ onClose, isLogin, onToggle }: AuthFormProps) => {
   };
 
   const generateMnemonic = (): string => {
-    const words = [
-      'abandon', 'ability', 'able', 'about', 'above', 'absent', 'absorb', 'abstract',
-      'absurd', 'abuse', 'access', 'accident', 'account', 'accuse', 'achieve', 'acid',
-      'acoustic', 'acquire', 'across', 'act', 'action', 'actor', 'actress', 'actual'
-    ];
-    return Array.from({ length: 12 }, () => words[Math.floor(Math.random() * words.length)]).join(' ');
+    // Using HDNode to generate a random mnemonic
+    const randomBytes = crypto.randomBytes(16);
+    const node = HDNode.fromSeed(randomBytes);
+    return node.mnemonic?.phrase || '';
   };
 
+  if (showRecoveryPhrase && walletInfo) {
+    const [copiedPhrase, setCopiedPhrase] = useState(false);
+    const [copiedAddress, setCopiedAddress] = useState(false);
+    const [checkboxChecked, setCheckboxChecked] = useState(false);
+
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+      >
+        <motion.div
+          initial={{ scale: 0.95, opacity: 0 }}
+          animate={{ scale: 1.05, opacity: 1 }}
+          exit={{ scale: 0.95, opacity: 0 }}
+          className="bg-white border-4 border-red-600 shadow-2xl rounded-2xl p-8 max-w-2xl w-full animate-pulse-once"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 bg-yellow-200 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-yellow-400">
+              <svg className="w-10 h-10 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M12 20a8 8 0 100-16 8 8 0 000 16z" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+              Account Created Successfully!
+            </h2>
+            <p className="text-red-600 font-bold text-lg">
+              ⚠️ SAVE YOUR RECOVERY PHRASE ⚠️
+            </p>
+          </div>
+
+          <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-4 mb-4">
+            <p className="text-yellow-900 text-sm mb-2 font-semibold">
+              This is your wallet recovery phrase. Write it down and store it in a safe place.<br />
+              <span className="text-red-600 font-bold">Never share it with anyone.</span>
+            </p>
+            <p className="text-xs text-yellow-700">If you lose this phrase, you will lose access to your wallet and funds.</p>
+          </div>
+
+          <div className="bg-gray-50 rounded-lg p-6 mb-6">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Recovery Phrase (12 words):</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
+              {walletInfo.mnemonic.split(' ').map((word, index) => (
+                <div key={index} className="bg-white border border-gray-300 rounded px-3 py-2 text-sm flex items-center">
+                  <span className="text-gray-400 mr-2">{index + 1}.</span>
+                  <span className="font-mono text-gray-800">{word}</span>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(walletInfo.mnemonic);
+                setCopiedPhrase(true);
+                setTimeout(() => setCopiedPhrase(false), 2000);
+              }}
+              className={`text-sm font-medium px-3 py-2 rounded transition-colors ${copiedPhrase ? 'bg-green-100 text-green-700 border border-green-400' : 'text-red-600 hover:text-white hover:bg-red-600 border border-red-200'}`}
+            >
+              {copiedPhrase ? 'Copied!' : 'Copy Recovery Phrase'}
+            </button>
+          </div>
+
+          <div className="bg-gray-50 rounded-lg p-4 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Your Wallet Address:</h3>
+              <p className="font-mono text-xs break-all mb-2 sm:mb-0">{walletInfo.address}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(walletInfo.address);
+                setCopiedAddress(true);
+                setTimeout(() => setCopiedAddress(false), 2000);
+              }}
+              className={`text-xs font-medium px-3 py-2 rounded transition-colors mt-2 sm:mt-0 ${copiedAddress ? 'bg-green-100 text-green-700 border border-green-400' : 'text-red-600 hover:text-white hover:bg-red-600 border border-red-200'}`}
+            >
+              {copiedAddress ? 'Copied!' : 'Copy Address'}
+            </button>
+          </div>
+
+          <div className="flex items-start space-x-2 mb-6">
+            <input
+              type="checkbox"
+              id="confirm-saved"
+              className="mt-1 accent-red-600"
+              checked={checkboxChecked}
+              onChange={e => setCheckboxChecked(e.target.checked)}
+              required
+            />
+            <label htmlFor="confirm-saved" className="text-sm text-gray-700">
+              I have written down my recovery phrase and stored it in a safe place.<br />
+              <span className="font-semibold text-red-600">I understand that I will lose access to my wallet if I lose this phrase.</span>
+            </label>
+          </div>
+
+          <button
+            type="button"
+            disabled={!checkboxChecked}
+            onClick={() => onClose()}
+            className={`w-full py-3 rounded-lg font-medium transition-colors ${checkboxChecked ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
+          >
+            Continue to Wallet
+          </button>
+        </motion.div>
+      </motion.div>
+    );
+  }
+
+  // ...existing code for the regular auth form...
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -108,6 +255,7 @@ const AuthModal = ({ onClose, isLogin, onToggle }: AuthFormProps) => {
         className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* ...existing code for the form... */}
         <div className="text-center mb-6">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">
             {isLogin ? 'Welcome Back' : 'Create Account'}
@@ -168,7 +316,7 @@ const AuthModal = ({ onClose, isLogin, onToggle }: AuthFormProps) => {
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="text-red-600 text-sm text-center bg-red-50 border border-red-200 rounded-lg p-3"
+              className="text-red-600 text-sm text-center bg-red-50 border border-red-200 rounded-lg p-3 whitespace-pre-line"
             >
               {error}
             </motion.div>

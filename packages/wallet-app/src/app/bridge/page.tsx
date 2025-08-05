@@ -14,17 +14,14 @@ import {
   XCircle,
   Info,
   Zap,
-  Settings,
-  RefreshCw,
-  AlertTriangle
+  Settings
 } from 'lucide-react';
 import { useAuth } from '../../../lib/auth-context';
 import TransactionService, { SwapTransaction } from '../../../lib/transaction-service';
 import BridgeService, { BridgeTransaction as BridgeTx, BridgeNetworkConfig } from '../../../lib/bridge-service';
+import EnhancedBridgeService from '../../../lib/enhanced-bridge-service';
 import WalletConnector, { type UnifiedConnection } from '../../components/ui/WalletConnector';
 import { PriceDisplay, TokenSelector, PriceComparison } from '../../components/ui/PriceComponents';
-import { phantomWalletService } from '../../../lib/phantom-wallet-service';
-import { solflareWalletService } from '../../../lib/solflare-wallet-service';
 import Navigation from '../../components/ui/Navigation';
 
 interface BridgeNetwork {
@@ -68,7 +65,11 @@ export default function Bridge() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [slippage, setSlippage] = useState(1.0);
   const [walletConnection, setWalletConnection] = useState<UnifiedConnection | null>(null);
-  const [showPrices, setShowPrices] = useState(true);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [pendingTransaction, setPendingTransaction] = useState<any>(null);
+  const [destinationAddress, setDestinationAddress] = useState('');
+  
+  const [isClient, setIsClient] = useState(false);
 
   const networks: BridgeNetworkConfig[] = [
     {
@@ -160,6 +161,18 @@ export default function Bridge() {
     return unsubscribe;
   }, []);
 
+  // Clear destination address when changing to VDX network
+  useEffect(() => {
+    if (toNetwork === 'VDX') {
+      setDestinationAddress('');
+    }
+  }, [toNetwork]);
+
+  // Initialize client-side only state to prevent hydration errors
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
   const saveBridgeTransaction = (tx: BridgeTx) => {
     BridgeService.saveBridgeTransaction(tx);
   };
@@ -203,6 +216,7 @@ export default function Bridge() {
     setToNetwork(tempNetwork);
     setFromAmount(toAmount);
     setToAmount(tempAmount);
+    setDestinationAddress(''); // Clear destination address on swap
   };
 
   const validateBridge = () => {
@@ -229,6 +243,42 @@ export default function Bridge() {
       }
     }
 
+    // Check SOL balance if bridging from SOL (using connected wallet)
+    if (fromNetwork === 'SOL') {
+      if (!walletConnection) {
+        return 'Please connect a Solana wallet';
+      }
+      
+      const solBalance = walletConnection.balance || 0;
+      if (amount > solBalance) {
+        return `Insufficient SOL balance. Available: ${solBalance.toFixed(4)} SOL`;
+      }
+    }
+
+    // Validate destination address for external networks
+    if (toNetwork !== 'VDX' && !destinationAddress) {
+      return `Please enter a ${networks.find(n => n.id === toNetwork)?.symbol} destination address`;
+    }
+
+    // Basic address validation
+    if (toNetwork === 'SOL' && destinationAddress) {
+      if (destinationAddress.length < 32 || destinationAddress.length > 44) {
+        return 'Invalid Solana address format';
+      }
+    }
+
+    if (toNetwork === 'XRP' && destinationAddress) {
+      if (!destinationAddress.startsWith('r') || destinationAddress.length < 25) {
+        return 'Invalid XRP address format';
+      }
+    }
+
+    if (toNetwork === 'SUI' && destinationAddress) {
+      if (!destinationAddress.startsWith('0x') || destinationAddress.length !== 66) {
+        return 'Invalid SUI address format (should start with 0x and be 64 characters)';
+      }
+    }
+
     return null;
   };
 
@@ -239,78 +289,142 @@ export default function Bridge() {
       return;
     }
 
+    // Prepare transaction details for confirmation
+    const fromNet = networks.find(n => n.id === fromNetwork);
+    const toNet = networks.find(n => n.id === toNetwork);
+    const amount = parseFloat(fromAmount);
+    const estimatedOutput = parseFloat(toAmount);
+    const bridgeFee = getTotalFee();
+    const exchangeRate = getExchangeRate();
+
+    setPendingTransaction({
+      fromNet,
+      toNet,
+      amount,
+      estimatedOutput,
+      bridgeFee,
+      exchangeRate,
+      userAddress: wallets?.[0]?.address || walletConnection?.address
+    });
+
+    setShowConfirmModal(true);
+  };
+
+  const confirmBridge = async () => {
+    if (!pendingTransaction) return;
+
+    setShowConfirmModal(false);
     setIsLoading(true);
     setError('');
+    setSuccess('');
 
     try {
-      const fromNet = networks.find(n => n.id === fromNetwork);
-      const toNet = networks.find(n => n.id === toNetwork);
-      const amount = parseFloat(fromAmount);
-      const estimatedOutput = parseFloat(toAmount);
-      const bridgeFee = getTotalFee();
-      const exchangeRate = getExchangeRate();
+      const { fromNet, toNet, amount, estimatedOutput, bridgeFee, exchangeRate } = pendingTransaction;
+
+      // Validate network configurations
+      if (!fromNet || !toNet) {
+        throw new Error('Invalid network configuration');
+      }
+
+      // Additional validation for cross-chain requirements
+      if (fromNetwork === 'SOL' && !walletConnection) {
+        throw new Error('Solana wallet not connected');
+      }
 
       const bridgeTransaction: BridgeTx = {
         id: BridgeService.generateTransactionId(),
         fromNetwork: fromNetwork,
         toNetwork: toNetwork,
-        fromToken: fromNet!.symbol,
-        toToken: toNet!.symbol,
+        fromToken: fromNet.symbol,
+        toToken: toNet.symbol,
         fromAmount: amount,
         toAmount: estimatedOutput,
         status: 'pending',
         timestamp: Date.now(),
         estimatedCompletion: Date.now() + BridgeService.estimateBridgeTime(fromNetwork, toNetwork),
-        userAddress: wallets?.[0]?.address,
+        userAddress: wallets?.[0]?.address || walletConnection?.address,
         bridgeFee: bridgeFee,
-        exchangeRate: exchangeRate
+        exchangeRate: exchangeRate,
+        destinationAddress: toNetwork !== 'VDX' ? destinationAddress : wallets?.[0]?.address
       };
 
       // Save bridge transaction using the service
       BridgeService.saveBridgeTransaction(bridgeTransaction);
 
-      // Start real bridge execution (replaces simulation)
-      BridgeService.executeBridge(bridgeTransaction);
+      // Start real bridge execution with enhanced retry logic
+      try {
+        // Validate configuration first
+        EnhancedBridgeService.validateBridgeConfiguration(bridgeTransaction);
+        
+        // Execute with retry logic
+        await EnhancedBridgeService.executeBridgeWithRetry(bridgeTransaction, {
+          maxRetries: 3,
+          baseDelay: 2000, // 2 seconds
+          maxDelay: 15000, // 15 seconds
+          backoffMultiplier: 2
+        });
+        
+        console.log('✅ Bridge execution initiated successfully with retry protection');
+      } catch (bridgeError) {
+        console.error('❌ Bridge execution failed after retries:', bridgeError);
+        throw new Error(`Bridge execution failed: ${bridgeError instanceof Error ? bridgeError.message : 'Unknown error'}`);
+      }
 
       // If bridging from VDX, create blockchain transaction
       if (fromNetwork === 'VDX' && wallets && wallets[0]) {
         const blockchainTransaction = {
           from: wallets[0].address,
-          to: fromNet!.contractAddress,
+          to: fromNet.contractAddress,
           amount: amount,
           type: 'bridge',
           data: {
             fromNetwork: fromNetwork,
             toNetwork: toNetwork,
-            targetAddress: 'user_external_address', // In real implementation, user would provide this
+            targetAddress: walletConnection?.address || 'user_external_address',
             bridgeId: bridgeTransaction.id,
-            destinationChainId: toNet!.chainId
+            destinationChainId: toNet.chainId
           }
         };
 
         try {
+          console.log('🔄 Submitting VDX blockchain transaction...');
           const response = await api.sendTransaction(blockchainTransaction);
           if (response.success) {
             BridgeService.updateBridgeTransactionStatus(bridgeTransaction.id, 'processing', {
               txHash: response.data?.transactionId || bridgeTransaction.id
             });
-            console.log('Bridge transaction submitted to blockchain:', response.data?.transactionId);
+            console.log('✅ Blockchain transaction submitted:', response.data?.transactionId);
+          } else {
+            throw new Error(response.error || 'Blockchain transaction failed');
           }
-        } catch (error) {
-          console.error('Blockchain bridge error:', error);
+        } catch (blockchainError) {
+          console.error('❌ Blockchain bridge error:', blockchainError);
           BridgeService.updateBridgeTransactionStatus(bridgeTransaction.id, 'failed');
+          throw new Error(`Blockchain transaction failed: ${blockchainError instanceof Error ? blockchainError.message : 'Unknown error'}`);
         }
       }
 
-      setSuccess('Bridge transaction initiated! Please wait for confirmation.');
+      setSuccess(`✅ Bridge transaction initiated successfully! Transaction ID: ${bridgeTransaction.id.slice(0, 8)}...`);
       setFromAmount('');
       setToAmount('');
 
     } catch (error: any) {
-      console.error('Bridge error:', error);
-      setError(error.message || 'Bridge failed. Please try again.');
+      console.error('❌ Bridge error:', error);
+      const errorMessage = error.message || 'Bridge failed. Please try again.';
+      
+      // Add user-friendly error messages
+      if (errorMessage.includes('Insufficient')) {
+        setError('❌ Insufficient balance. Please check your wallet balance and try again.');
+      } else if (errorMessage.includes('network')) {
+        setError('❌ Network error. Please check your connection and try again.');
+      } else if (errorMessage.includes('wallet')) {
+        setError('❌ Wallet connection error. Please reconnect your wallet.');
+      } else {
+        setError(`❌ ${errorMessage}`);
+      }
     } finally {
       setIsLoading(false);
+      setPendingTransaction(null);
     }
   };
 
@@ -338,182 +452,87 @@ export default function Bridge() {
       {/* Navigation */}
       <Navigation />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-12 pt-24 sm:pt-28 lg:pt-32">
+        {/* Mobile-first responsive grid */}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 sm:gap-8 lg:gap-10">
           
-          {/* Left Sidebar - Wallet & Network Info */}
-          <div className="lg:col-span-1 space-y-6">
-            
-            {/* Wallet Connection */}
-            <WalletConnector 
-              onConnectionChange={setWalletConnection}
-              className="mb-6"
-            />
+          {/* Mobile: Stack all sections vertically */}
+          {/* Desktop: Left Sidebar - Wallet Connection */}
+          <div className="xl:col-span-1 order-3 xl:order-1">
+            <div className="space-y-4 sm:space-y-6">
+              
+              {/* VDX Wallet Connection */}
+              <WalletConnector 
+                onConnectionChange={setWalletConnection}
+                className="mb-6 sm:mb-8"
+              />
 
-            {/* Connected Wallet Info */}
-            {walletConnection && (
-              <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-xl border border-blue-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                  Connected Wallet
-                </h3>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">
-                      {walletConnection.walletType === 'phantom' ? '👻' : '☀️'}
-                    </span>
-                    <span className="font-medium">
-                      {walletConnection.walletType === 'phantom' ? 'Phantom Wallet' : 'Solflare Wallet'}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-600">
-                    Balance: {walletConnection.balance.toFixed(4)} SOL
-                  </p>
-                  <p className="text-xs text-gray-500 font-mono">
-                    {walletConnection.address.slice(0, 8)}...{walletConnection.address.slice(-8)}
-                  </p>
+              {/* Bridge Info - Hidden on mobile, collapsible on tablet */}
+              <div className="hidden sm:block bg-white rounded-xl shadow-sm border p-6 sm:p-8">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Network Status</h3>
+                
+                {/* Network Health Indicators */}
+                <div className="space-y-2 mb-4">
+                  {networks.map((network) => (
+                    <div key={network.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-lg">{network.icon}</span>
+                        <span className="font-medium text-sm">{network.symbol}</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <div className={`w-2 h-2 rounded-full ${
+                          network.status === 'active' ? 'bg-green-500' :
+                          network.status === 'maintenance' ? 'bg-yellow-500' :
+                          'bg-red-500'
+                        }`}></div>
+                        <span className="text-xs text-gray-600 capitalize">{network.status}</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-            )}
-
-            {/* Multi-Wallet Info */}
-            <div className="bg-gray-50 rounded-xl p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Supported Wallets</h3>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 bg-white rounded-lg border">
-                  <div className="flex items-center gap-3">
-                    <span className="text-lg">👻</span>
+                
+                <h4 className="text-md font-semibold text-gray-900 mb-3">How it Works</h4>
+                <div className="space-y-3 sm:space-y-4 text-sm text-gray-600">
+                  <div className="flex items-start space-x-3">
+                    <div className="w-6 h-6 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <span className="text-red-600 text-xs font-bold">1</span>
+                    </div>
                     <div>
-                      <p className="font-medium">Phantom</p>
-                      <p className="text-sm text-gray-500">Solana wallet</p>
+                      <p className="font-medium text-gray-900">Select Networks</p>
+                      <p className="text-xs sm:text-sm">Choose source and destination blockchains</p>
                     </div>
                   </div>
-                  <div className="text-sm">
-                    {phantomWalletService.isInstalled() ? (
-                      <span className="text-green-600">✓ Installed</span>
-                    ) : (
-                      <span className="text-gray-400">Not installed</span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between p-3 bg-white rounded-lg border">
-                  <div className="flex items-center gap-3">
-                    <span className="text-lg">☀️</span>
+                  <div className="flex items-start space-x-3">
+                    <div className="w-6 h-6 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <span className="text-red-600 text-xs font-bold">2</span>
+                    </div>
                     <div>
-                      <p className="font-medium">Solflare</p>
-                      <p className="text-sm text-gray-500">Solana wallet</p>
+                      <p className="font-medium text-gray-900">Lock Tokens</p>
+                      <p className="text-xs sm:text-sm">Tokens are securely locked in bridge contract</p>
                     </div>
                   </div>
-                  <div className="text-sm">
-                    {solflareWalletService.isInstalled() ? (
-                      <span className="text-green-600">✓ Installed</span>
-                    ) : (
-                      <span className="text-gray-400">Not installed</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Price Display */}
-            {showPrices && (
-              <div className="bg-white rounded-xl shadow-sm border p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Live Prices</h3>
-                  <button
-                    onClick={() => setShowPrices(!showPrices)}
-                    className="p-1 text-gray-400 hover:text-gray-600"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                  </button>
-                </div>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">VDX</span>
-                    <PriceDisplay symbol="VDX" showChange />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">SOL</span>
-                    <PriceDisplay symbol="SOL" showChange />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">XRP</span>
-                    <PriceDisplay symbol="XRP" showChange />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">SUI</span>
-                    <PriceDisplay symbol="SUI" showChange />
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {/* Supported Networks */}
-            <div className="bg-white rounded-xl shadow-sm border p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Supported Networks</h3>
-              <div className="space-y-3">
-                {networks.map((network) => (
-                  <div key={network.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center space-x-3">
-                      <div className="text-2xl">{network.icon}</div>
-                      <div>
-                        <div className="font-medium text-gray-900">{network.name}</div>
-                        <div className="text-sm text-gray-500">{network.symbol}</div>
-                      </div>
+                  <div className="flex items-start space-x-3">
+                    <div className="w-6 h-6 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <span className="text-red-600 text-xs font-bold">3</span>
                     </div>
-                    <div className="text-right">
-                      <div className={`text-xs px-2 py-1 rounded-full ${
-                        network.status === 'active' ? 'bg-green-100 text-green-800' :
-                        network.status === 'maintenance' ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-red-100 text-red-800'
-                      }`}>
-                        {network.status}
-                      </div>
-                      <div className="text-xs text-gray-500 mt-1">{network.estimatedTime}</div>
+                    <div>
+                      <p className="font-medium text-gray-900">Mint & Transfer</p>
+                      <p className="text-xs sm:text-sm">Equivalent tokens minted on destination chain</p>
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Bridge Statistics */}
-            <div className="bg-white rounded-xl shadow-sm border p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Bridge Stats</h3>
-              <div className="space-y-4">
-                {(() => {
-                  const stats = BridgeService.getBridgeStatistics();
-                  return (
-                    <>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">24h Volume</span>
-                        <span className="font-semibold text-gray-900">${formatNumber(stats.dailyVolume * 1.25)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Total Bridged</span>
-                        <span className="font-semibold text-gray-900">${formatNumber(stats.totalVolume * 1.25)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Success Rate</span>
-                        <span className="font-semibold text-gray-900">{stats.successRate.toFixed(1)}%</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Avg. Time</span>
-                        <span className="font-semibold text-gray-900">{Math.round(stats.averageTime)} min</span>
-                      </div>
-                    </>
-                  );
-                })()}
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Center - Bridge Interface */}
-          <div className="lg:col-span-1">
+          {/* Mobile: Bridge Interface comes first */}
+          {/* Desktop: Center - Bridge Interface */}
+          <div className="xl:col-span-1 order-1 xl:order-2">
             <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-              {/* Bridge Header */}
-              <div className="bg-gradient-to-r from-red-50 to-red-100 px-6 py-4 border-b border-red-200">
+              {/* Bridge Header - Responsive */}
+              <div className="bg-gradient-to-r from-red-50 to-red-100 px-4 sm:px-6 py-3 sm:py-4 border-b border-red-200">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-bold text-gray-900">Cross-Chain Bridge</h2>
+                  <h2 className="text-lg sm:text-xl font-bold text-gray-900">Cross-Chain Bridge</h2>
                   <button
                     onClick={() => setShowAdvanced(!showAdvanced)}
                     className={`p-2 rounded-lg transition-colors ${
@@ -522,17 +541,17 @@ export default function Bridge() {
                         : 'hover:bg-red-200 text-red-600'
                     }`}
                   >
-                    <Settings className="h-5 w-5" />
+                    <Settings className="h-4 w-4 sm:h-5 sm:w-5" />
                   </button>
                 </div>
               </div>
 
-              <div className="p-6 space-y-4">
+              <div className="p-6 sm:p-8 space-y-4 sm:space-y-6">
                 {!isAuthenticated && (
-                  <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
                     <div className="flex items-center">
-                      <AlertCircle className="h-5 w-5 text-yellow-600 mr-2" />
-                      <p className="text-yellow-700 text-sm">
+                      <AlertCircle className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-600 mr-2" />
+                      <p className="text-yellow-700 text-xs sm:text-sm">
                         Please connect your wallet to use the bridge
                       </p>
                     </div>
@@ -540,12 +559,12 @@ export default function Bridge() {
                 )}
 
                 {error && (
-                  <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-red-50 border border-red-200 rounded-lg">
                     <div className="flex items-center justify-between">
-                      <p className="text-red-600 text-sm">{error}</p>
+                      <p className="text-red-600 text-xs sm:text-sm pr-2">{error}</p>
                       <button
                         onClick={() => setError('')}
-                        className="text-red-400 hover:text-red-600"
+                        className="text-red-400 hover:text-red-600 text-lg"
                       >
                         ×
                       </button>
@@ -554,12 +573,12 @@ export default function Bridge() {
                 )}
 
                 {success && (
-                  <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-green-50 border border-green-200 rounded-lg">
                     <div className="flex items-center justify-between">
-                      <p className="text-green-600 text-sm">{success}</p>
+                      <p className="text-green-600 text-xs sm:text-sm pr-2">{success}</p>
                       <button
                         onClick={() => setSuccess('')}
-                        className="text-green-400 hover:text-green-600"
+                        className="text-green-400 hover:text-green-600 text-lg"
                       >
                         ×
                       </button>
@@ -568,16 +587,16 @@ export default function Bridge() {
                 )}
 
                 {showAdvanced && (
-                  <div className="mb-6 p-4 bg-gray-50 rounded-lg border">
-                    <h4 className="font-medium text-gray-900 mb-3">Advanced Settings</h4>
+                  <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-gray-50 rounded-lg border">
+                    <h4 className="font-medium text-gray-900 mb-3 text-sm sm:text-base">Advanced Settings</h4>
                     <div>
-                      <label className="block text-sm text-gray-700 mb-2">Slippage Tolerance</label>
+                      <label className="block text-xs sm:text-sm text-gray-700 mb-2">Slippage Tolerance</label>
                       <div className="flex space-x-2">
                         {[0.5, 1.0, 2.0].map(value => (
                           <button
                             key={value}
                             onClick={() => setSlippage(value)}
-                            className={`px-3 py-1 rounded text-sm transition-all duration-200 ${
+                            className={`px-3 py-1 rounded text-xs sm:text-sm transition-all duration-200 ${
                               slippage === value 
                                 ? 'bg-red-600 text-white shadow-md' 
                                 : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
@@ -591,15 +610,15 @@ export default function Bridge() {
                   </div>
                 )}
 
-                {/* From Network */}
+                {/* From Network - Mobile Optimized */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">From</label>
-                  <div className="bg-gray-50 rounded-lg p-4 border-2 border-gray-200 hover:border-gray-300 transition-colors">
+                  <label className="text-xs sm:text-sm font-medium text-gray-700">From</label>
+                  <div className="bg-gray-50 rounded-lg p-3 sm:p-4 border-2 border-gray-200 hover:border-gray-300 transition-colors">
                     <div className="flex items-center justify-between mb-2">
                       <select
                         value={fromNetwork}
                         onChange={(e) => setFromNetwork(e.target.value)}
-                        className="bg-transparent text-lg font-semibold focus:outline-none"
+                        className="bg-transparent text-base sm:text-lg font-semibold focus:outline-none min-w-0 flex-shrink-0"
                         disabled={!isAuthenticated}
                       >
                         {networks.map(network => (
@@ -613,47 +632,49 @@ export default function Bridge() {
                         value={fromAmount}
                         onChange={(e) => handleAmountChange(e.target.value, true)}
                         placeholder="0.0"
-                        className="text-right text-lg font-semibold bg-transparent focus:outline-none w-full"
+                        className="text-right text-base sm:text-lg font-semibold bg-transparent focus:outline-none w-full min-w-0"
                         disabled={!isAuthenticated}
                       />
                     </div>
-                    <div className="flex items-center justify-between text-sm text-gray-500">
-                      <span>{networks.find(n => n.id === fromNetwork)?.name}</span>
-                      <span>Fee: {networks.find(n => n.id === fromNetwork)?.fee}%</span>
+                    <div className="flex items-center justify-between text-xs sm:text-sm text-gray-500">
+                      <span className="truncate">{networks.find(n => n.id === fromNetwork)?.name}</span>
+                      <span className="flex-shrink-0">Fee: {networks.find(n => n.id === fromNetwork)?.fee}%</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Swap Button */}
-                <div className="flex justify-center">
+                {/* Swap Button - Mobile Optimized */}
+                <div className="flex justify-center py-2">
                   <button
                     onClick={handleSwapNetworks}
-                    className="p-3 bg-red-50 hover:bg-red-100 rounded-full transition-colors border border-red-200"
+                    className="p-2 sm:p-3 bg-red-50 hover:bg-red-100 rounded-full transition-colors border border-red-200"
                     disabled={!isAuthenticated}
                   >
-                    <ArrowUpDown className="h-5 w-5 text-red-600" />
+                    <ArrowUpDown className="h-4 w-4 sm:h-5 sm:w-5 text-red-600" />
                   </button>
                 </div>
 
-                {/* Price Comparison */}
+                {/* Price Comparison - Mobile Responsive */}
                 {fromAmount && parseFloat(fromAmount) > 0 && (
-                  <PriceComparison 
-                    fromSymbol={networks.find(n => n.id === fromNetwork)?.symbol || fromNetwork}
-                    toSymbol={networks.find(n => n.id === toNetwork)?.symbol || toNetwork}
-                    amount={parseFloat(fromAmount)}
-                    className="my-4"
-                  />
+                  <div className="my-3 sm:my-4">
+                    <PriceComparison 
+                      fromSymbol={networks.find(n => n.id === fromNetwork)?.symbol || fromNetwork}
+                      toSymbol={networks.find(n => n.id === toNetwork)?.symbol || toNetwork}
+                      amount={parseFloat(fromAmount)}
+                      className="text-xs sm:text-sm"
+                    />
+                  </div>
                 )}
 
-                {/* To Network */}
+                {/* To Network - Mobile Optimized */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">To</label>
-                  <div className="bg-gray-50 rounded-lg p-4 border-2 border-gray-200 hover:border-gray-300 transition-colors">
+                  <label className="text-xs sm:text-sm font-medium text-gray-700">To</label>
+                  <div className="bg-gray-50 rounded-lg p-3 sm:p-4 border-2 border-gray-200 hover:border-gray-300 transition-colors">
                     <div className="flex items-center justify-between mb-2">
                       <select
                         value={toNetwork}
                         onChange={(e) => setToNetwork(e.target.value)}
-                        className="bg-transparent text-lg font-semibold focus:outline-none"
+                        className="bg-transparent text-base sm:text-lg font-semibold focus:outline-none min-w-0 flex-shrink-0"
                         disabled={!isAuthenticated}
                       >
                         {networks.filter(n => n.id !== fromNetwork).map(network => (
@@ -667,24 +688,52 @@ export default function Bridge() {
                         value={toAmount}
                         onChange={(e) => handleAmountChange(e.target.value, false)}
                         placeholder="0.0"
-                        className="text-right text-lg font-semibold bg-transparent focus:outline-none w-full"
+                        className="text-right text-base sm:text-lg font-semibold bg-transparent focus:outline-none w-full min-w-0"
                         disabled={!isAuthenticated}
                         readOnly
                       />
                     </div>
-                    <div className="flex items-center justify-between text-sm text-gray-500">
-                      <span>{networks.find(n => n.id === toNetwork)?.name}</span>
-                      <span>Fee: {networks.find(n => n.id === toNetwork)?.fee}%</span>
+                    <div className="flex items-center justify-between text-xs sm:text-sm text-gray-500">
+                      <span className="truncate">{networks.find(n => n.id === toNetwork)?.name}</span>
+                      <span className="flex-shrink-0">Fee: {networks.find(n => n.id === toNetwork)?.fee}%</span>
                     </div>
                   </div>
+                  
+                  {/* Destination Address Input */}
+                  {toNetwork !== 'VDX' && (
+                    <div className="mt-2">
+                      <label className="block text-xs sm:text-sm text-gray-700 mb-1">
+                        Destination {networks.find(n => n.id === toNetwork)?.symbol} Address
+                      </label>
+                      <input
+                        type="text"
+                        value={destinationAddress}
+                        onChange={(e) => setDestinationAddress(e.target.value)}
+                        placeholder={`Enter your ${networks.find(n => n.id === toNetwork)?.symbol} wallet address`}
+                        className="w-full px-3 py-2 text-xs sm:text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                        disabled={!isAuthenticated}
+                      />
+                      {toNetwork === 'SOL' && walletConnection?.address && (
+                        <button
+                          onClick={() => setDestinationAddress(walletConnection.address)}
+                          className="mt-1 text-xs text-blue-600 hover:text-blue-800 underline"
+                        >
+                          Use connected Solana wallet: {walletConnection.address.slice(0, 8)}...{walletConnection.address.slice(-6)}
+                        </button>
+                      )}
+                      <p className="text-xs text-gray-500 mt-1">
+                        Make sure this address is correct. Transfers to wrong addresses cannot be recovered.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
-                {/* Exchange Rate & Details */}
+                {/* Exchange Rate & Details - Mobile Optimized */}
                 {fromAmount && toAmount && (
-                  <div className="p-4 bg-gray-50 rounded-lg space-y-2 text-sm border">
-                    <div className="flex justify-between">
+                  <div className="p-3 sm:p-4 bg-gray-50 rounded-lg space-y-2 text-xs sm:text-sm border">
+                    <div className="flex justify-between items-start">
                       <span className="text-gray-600">Exchange Rate:</span>
-                      <span className="font-medium">1 {networks.find(n => n.id === fromNetwork)?.symbol} = {getExchangeRate().toFixed(6)} {networks.find(n => n.id === toNetwork)?.symbol}</span>
+                      <span className="font-medium text-right">1 {networks.find(n => n.id === fromNetwork)?.symbol} = {getExchangeRate().toFixed(6)} {networks.find(n => n.id === toNetwork)?.symbol}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Bridge Fee:</span>
@@ -694,143 +743,242 @@ export default function Bridge() {
                       <span className="text-gray-600">Estimated Time:</span>
                       <span className="font-medium">{networks.find(n => n.id === fromNetwork)?.estimatedTime}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">You will receive:</span>
-                      <span className="font-medium">{parseFloat(toAmount).toFixed(6)} {networks.find(n => n.id === toNetwork)?.symbol}</span>
+                    <div className="flex justify-between pt-1 border-t border-gray-200">
+                      <span className="text-gray-600 font-medium">You will receive:</span>
+                      <span className="font-semibold text-green-600">{parseFloat(toAmount).toFixed(6)} {networks.find(n => n.id === toNetwork)?.symbol}</span>
                     </div>
                   </div>
                 )}
 
-                {/* Bridge Button */}
+                {/* Bridge Button - Mobile Optimized */}
                 <button
                   onClick={handleBridge}
                   disabled={!isAuthenticated || isLoading || !fromAmount || !toAmount}
-                  className="w-full bg-gradient-to-r from-red-600 to-red-700 text-white py-4 px-6 rounded-lg hover:from-red-700 hover:to-red-800 disabled:from-gray-400 disabled:to-gray-400 disabled:cursor-not-allowed font-semibold text-lg transition-all duration-200 shadow-lg hover:shadow-xl"
+                  className="w-full bg-gradient-to-r from-red-600 to-red-700 text-white py-3 sm:py-4 px-4 sm:px-6 rounded-lg hover:from-red-700 hover:to-red-800 disabled:from-gray-400 disabled:to-gray-400 disabled:cursor-not-allowed font-semibold text-base sm:text-lg transition-all duration-200 shadow-lg hover:shadow-xl"
                 >
-                  {!isAuthenticated 
-                    ? 'Connect Wallet' 
-                    : isLoading 
-                    ? 'Processing...' 
-                    : 'Bridge Tokens'
-                  }
+                  {!isAuthenticated ? (
+                    <span className="flex items-center justify-center">
+                      <Wallet className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
+                      Connect Wallet
+                    </span>
+                  ) : isLoading ? (
+                    <span className="flex items-center justify-center">
+                      <div className="animate-spin rounded-full h-4 w-4 sm:h-5 sm:w-5 border-b-2 border-white mr-2"></div>
+                      Processing...
+                    </span>
+                  ) : (
+                    <span className="flex items-center justify-center">
+                      <ArrowUpDown className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
+                      Bridge Tokens
+                    </span>
+                  )}
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Right Sidebar - Bridge Activity */}
-          <div className="lg:col-span-1 space-y-6">
-            {/* Recent Bridge Transactions */}
-            <div className="bg-white rounded-xl shadow-sm border p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Bridge Activity</h3>
-              {bridgeTransactions.length === 0 ? (
-                <div className="text-center py-8">
-                  <Zap className="mx-auto h-8 w-8 text-gray-400 mb-2" />
-                  <p className="text-gray-500 text-sm">No bridge transactions yet</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {bridgeTransactions.slice(0, 5).map((tx) => (
-                    <div key={tx.id} className="p-3 bg-gray-50 rounded-lg">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center space-x-2">
-                          <span className="text-sm font-medium">
-                            {tx.fromToken} → {tx.toToken}
-                          </span>
-                          <div className={`text-xs px-2 py-1 rounded-full ${
-                            tx.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                            tx.status === 'processing' ? 'bg-blue-100 text-blue-800' :
-                            tx.status === 'completed' ? 'bg-green-100 text-green-800' :
-                            'bg-red-100 text-red-800'
-                          }`}>
-                            {tx.status}
+          {/* Mobile: Activity comes after bridge interface */}
+          {/* Desktop: Right Sidebar - Bridge Activity */}
+          <div className="xl:col-span-1 order-2 xl:order-3">
+            <div className="space-y-4 sm:space-y-6">
+              
+              {/* Recent Bridge Transactions - Mobile Optimized */}
+              <div className="bg-white rounded-xl shadow-sm border p-6 sm:p-8">
+                <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Bridge Activity</h3>
+                {bridgeTransactions.length === 0 ? (
+                  <div className="text-center py-6 sm:py-8">
+                    <Zap className="mx-auto h-6 w-6 sm:h-8 sm:w-8 text-gray-400 mb-2" />
+                    <p className="text-gray-500 text-xs sm:text-sm">No bridge transactions yet</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 sm:space-y-3">
+                    {bridgeTransactions.slice(0, 5).map((tx) => (
+                      <div key={tx.id} className="p-2 sm:p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center justify-between mb-1 sm:mb-2">
+                          <div className="flex items-center space-x-2 min-w-0 flex-1">
+                            <span className="text-xs sm:text-sm font-medium truncate">
+                              {tx.fromToken} → {tx.toToken}
+                            </span>
+                            <div className={`text-xs px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full flex-shrink-0 ${
+                              tx.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                              tx.status === 'processing' ? 'bg-blue-100 text-blue-800' :
+                              tx.status === 'completed' ? 'bg-green-100 text-green-800' :
+                              'bg-red-100 text-red-800'
+                            }`}>
+                              {tx.status}
+                            </div>
+                            {/* Show retry information */}
+                            {tx.retryAttempt && tx.retryAttempt > 0 && (
+                              <div className="text-xs px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-800 flex-shrink-0">
+                                Retry {tx.retryAttempt}
+                              </div>
+                            )}
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            {tx.status === 'completed' ? (
+                              <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
+                            ) : tx.status === 'failed' ? (
+                              <XCircle className="h-3 w-3 sm:h-4 sm:w-4 text-red-600" />
+                            ) : (
+                              <Clock className="h-3 w-3 sm:h-4 sm:w-4 text-blue-600" />
+                            )}
                           </div>
                         </div>
-                        <div className="text-right">
-                          {tx.status === 'completed' ? (
-                            <CheckCircle className="h-4 w-4 text-green-600" />
-                          ) : tx.status === 'failed' ? (
-                            <XCircle className="h-4 w-4 text-red-600" />
-                          ) : (
-                            <Clock className="h-4 w-4 text-blue-600" />
-                          )}
+                        <div className="flex justify-between text-xs text-gray-500">
+                          <span className="truncate">{tx.fromAmount} {tx.fromToken}</span>
+                          <span className="flex-shrink-0 ml-2">{new Date(tx.timestamp).toLocaleTimeString()}</span>
                         </div>
+                        
+                        {/* Progress bar for processing transactions */}
+                        {isClient && tx.status === 'processing' && tx.estimatedCompletion && (
+                          <div className="mt-2">
+                            <div className="flex justify-between text-xs text-gray-500 mb-1">
+                              <span>Progress</span>
+                              <span>{Math.min(100, Math.round(((Date.now() - tx.timestamp) / (tx.estimatedCompletion - tx.timestamp)) * 100))}%</span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-1">
+                              <div 
+                                className="bg-blue-600 h-1 rounded-full transition-all duration-1000" 
+                                style={{ 
+                                  width: `${Math.min(100, Math.round(((Date.now() - tx.timestamp) / (tx.estimatedCompletion - tx.timestamp)) * 100))}%`
+                                }}
+                              ></div>
+                            </div>
+                          </div>
+                        )}
+                        {/* Show error information if failed */}
+                        {tx.status === 'failed' && tx.error && (
+                          <div className="mt-1 sm:mt-2 p-1.5 sm:p-2 bg-red-50 rounded text-xs text-red-700">
+                            <div className="font-medium">Error:</div>
+                            <div className="truncate">{tx.error}</div>
+                            {tx.totalAttempts && (
+                              <div className="text-red-600 mt-1">
+                                Failed after {tx.totalAttempts} attempts
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {tx.txHash && (
+                          <div className="mt-1 sm:mt-2 flex items-center space-x-2">
+                            <ExternalLink className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-blue-600 flex-shrink-0" />
+                            <span className="text-xs text-blue-600 font-mono truncate">
+                              {tx.txHash.slice(0, 12)}...
+                            </span>
+                          </div>
+                        )}
                       </div>
-                      <div className="flex justify-between text-xs text-gray-500">
-                        <span>{tx.fromAmount} {tx.fromToken}</span>
-                        <span>{new Date(tx.timestamp).toLocaleTimeString()}</span>
-                      </div>
-                      {tx.txHash && (
-                        <div className="mt-2 flex items-center space-x-2">
-                          <ExternalLink className="h-3 w-3 text-blue-600" />
-                          <span className="text-xs text-blue-600 font-mono truncate">
-                            {tx.txHash.slice(0, 16)}...
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Bridge Info */}
-            <div className="bg-white rounded-xl shadow-sm border p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">How it Works</h3>
-              <div className="space-y-4 text-sm text-gray-600">
-                <div className="flex items-start space-x-3">
-                  <div className="w-6 h-6 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-red-600 text-xs font-bold">1</span>
+                    ))}
                   </div>
-                  <div>
-                    <p className="font-medium text-gray-900">Select Networks</p>
-                    <p>Choose source and destination blockchains</p>
-                  </div>
-                </div>
-                <div className="flex items-start space-x-3">
-                  <div className="w-6 h-6 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-red-600 text-xs font-bold">2</span>
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">Lock Tokens</p>
-                    <p>Tokens are securely locked in bridge contract</p>
-                  </div>
-                </div>
-                <div className="flex items-start space-x-3">
-                  <div className="w-6 h-6 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-red-600 text-xs font-bold">3</span>
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">Mint & Transfer</p>
-                    <p>Equivalent tokens minted on destination chain</p>
-                  </div>
-                </div>
+                )}
               </div>
-            </div>
 
-            {/* Quick Links */}
-            <div className="bg-white rounded-xl shadow-sm border p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
-              <div className="space-y-3">
-                <Link href="/swap" className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-                  <div className="flex items-center space-x-3">
-                    <ArrowUpDown className="h-5 w-5 text-gray-600" />
-                    <span className="font-medium text-gray-900">Swap Tokens</span>
-                  </div>
-                  <span className="text-gray-400">→</span>
-                </Link>
-                <Link href="/explorer" className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-                  <div className="flex items-center space-x-3">
-                    <Info className="h-5 w-5 text-gray-600" />
-                    <span className="font-medium text-gray-900">View Explorer</span>
-                  </div>
-                  <span className="text-gray-400">→</span>
-                </Link>
+              {/* Quick Links - Mobile Optimized */}
+              <div className="bg-white rounded-xl shadow-sm border p-6 sm:p-8">
+                <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Quick Actions</h3>
+                <div className="space-y-2 sm:space-y-3">
+                  <Link href="/swap" className="flex items-center justify-between p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                    <div className="flex items-center space-x-2 sm:space-x-3">
+                      <ArrowUpDown className="h-4 w-4 sm:h-5 sm:w-5 text-gray-600" />
+                      <span className="font-medium text-gray-900 text-sm sm:text-base">Swap Tokens</span>
+                    </div>
+                    <span className="text-gray-400">→</span>
+                  </Link>
+                  <Link href="/explorer" className="flex items-center justify-between p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                    <div className="flex items-center space-x-2 sm:space-x-3">
+                      <Info className="h-4 w-4 sm:h-5 sm:w-5 text-gray-600" />
+                      <span className="font-medium text-gray-900 text-sm sm:text-base">View Explorer</span>
+                    </div>
+                    <span className="text-gray-400">→</span>
+                  </Link>
+                </div>
               </div>
             </div>
           </div>
-
         </div>
+
+        {/* Confirmation Modal */}
+        {showConfirmModal && pendingTransaction && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-4 sm:p-6">
+              <div className="flex items-center justify-between mb-3 sm:mb-4">
+                <h3 className="text-lg sm:text-xl font-bold text-gray-900">Confirm Bridge Transaction</h3>
+                <button
+                  onClick={() => setShowConfirmModal(false)}
+                  className="text-gray-400 hover:text-gray-600 text-lg sm:text-xl"
+                >
+                  ×
+                </button>
+              </div>
+              
+              <div className="space-y-3 sm:space-y-4 mb-4 sm:mb-6">
+                <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-gray-600 text-sm">From:</span>
+                    <div className="text-right">
+                      <div className="font-semibold text-sm sm:text-base">{pendingTransaction.amount} {pendingTransaction.fromNet.symbol}</div>
+                      <div className="text-xs sm:text-sm text-gray-500">{pendingTransaction.fromNet.name}</div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex justify-center my-2">
+                    <ArrowUpDown className="h-3 w-3 sm:h-4 sm:w-4 text-gray-400" />
+                  </div>
+                  
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600 text-sm">To:</span>
+                    <div className="text-right">
+                      <div className="font-semibold text-sm sm:text-base">{pendingTransaction.estimatedOutput.toFixed(6)} {pendingTransaction.toNet.symbol}</div>
+                      <div className="text-xs sm:text-sm text-gray-500">{pendingTransaction.toNet.name}</div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="border-t pt-3 sm:pt-4 space-y-1 sm:space-y-2 text-xs sm:text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Exchange Rate:</span>
+                    <span>1 {pendingTransaction.fromNet.symbol} = {pendingTransaction.exchangeRate.toFixed(6)} {pendingTransaction.toNet.symbol}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Bridge Fee:</span>
+                    <span>{(pendingTransaction.bridgeFee * 100).toFixed(2)}%</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Estimated Time:</span>
+                    <span>{pendingTransaction.fromNet.estimatedTime}</span>
+                  </div>
+                  {pendingTransaction.toNet.id !== 'VDX' && destinationAddress && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Destination:</span>
+                      <span className="font-mono text-xs">
+                        {destinationAddress.slice(0, 8)}...{destinationAddress.slice(-6)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-semibold">
+                    <span>You will receive:</span>
+                    <span>{pendingTransaction.estimatedOutput.toFixed(6)} {pendingTransaction.toNet.symbol}</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex space-x-2 sm:space-x-3">
+                <button
+                  onClick={() => setShowConfirmModal(false)}
+                  className="flex-1 px-3 sm:px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm sm:text-base"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmBridge}
+                  disabled={isLoading}
+                  className="flex-1 px-3 sm:px-4 py-2 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg hover:from-red-700 hover:to-red-800 disabled:opacity-50 transition-colors text-sm sm:text-base"
+                >
+                  {isLoading ? 'Processing...' : 'Confirm Bridge'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

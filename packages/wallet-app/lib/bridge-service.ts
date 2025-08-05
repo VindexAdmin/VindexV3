@@ -2,6 +2,8 @@
 import { SolanaService, solanaService } from './solana-service';
 import { XRPService, xrpService } from './xrp-service';
 import { SUIService, suiService } from './sui-service';
+import { VindexBridgeAPIClient, BridgeAPIError } from './bridge-api-client';
+import { TransactionService, SwapTransaction } from './transaction-service';
 
 export interface BridgeTransaction {
   id: string;
@@ -20,6 +22,11 @@ export interface BridgeTransaction {
   destinationAddress?: string;
   bridgeFee?: number;
   exchangeRate?: number;
+  // Enhanced properties for retry logic and error handling
+  retryAttempt?: number;
+  totalAttempts?: number;
+  error?: string;
+  lastError?: string;
 }
 
 export interface BridgeNetworkConfig {
@@ -46,6 +53,7 @@ class BridgeService {
   private solanaService: SolanaService;
   private xrpService: XRPService;
   private suiService: SUIService;
+  private apiClient: VindexBridgeAPIClient;
   
   public static getInstance(): BridgeService {
     if (!BridgeService.instance) {
@@ -60,7 +68,14 @@ class BridgeService {
     this.xrpService = new XRPService();
     this.suiService = new SUIService();
     
-        // Initialize connections
+    // Initialize API client
+    this.apiClient = new VindexBridgeAPIClient({
+      baseURL: process.env.NEXT_PUBLIC_BRIDGE_API_URL || 'http://localhost:3001/api/v1',
+      timeout: 30000,
+      retryAttempts: 3
+    });
+    
+    // Initialize connections
     this.initializeServices();
   }
 
@@ -109,6 +124,30 @@ class BridgeService {
       localStorage.setItem(this.storageKey, JSON.stringify(trimmedTransactions));
       this.dispatchBridgeUpdate();
       
+      // Also save to TransactionService for explorer integration
+      const swapTransaction: SwapTransaction = {
+        id: transaction.id,
+        type: 'transfer', // Bridge transactions are cross-chain transfers
+        from: `${transaction.fromNetwork}:${transaction.userAddress || 'user'}`,
+        to: `${transaction.toNetwork}:${transaction.destinationAddress || 'user'}`,
+        amount: transaction.fromAmount,
+        timestamp: transaction.timestamp,
+        status: transaction.status === 'completed' ? 'confirmed' : 
+                transaction.status === 'failed' ? 'failed' : 'pending',
+        data: {
+          tokenA: transaction.fromToken,
+          tokenB: transaction.toToken,
+          amountIn: transaction.fromAmount,
+          amountOut: transaction.toAmount,
+          exchangeRate: transaction.exchangeRate,
+          fee: transaction.bridgeFee
+        },
+        txHash: transaction.txHash,
+        error: transaction.error
+      };
+      
+      TransactionService.saveTransaction(swapTransaction);
+      
       console.log('Bridge transaction saved:', transaction.id);
     } catch (error) {
       console.error('Failed to save bridge transaction:', error);
@@ -145,6 +184,15 @@ class BridgeService {
         
         localStorage.setItem(this.storageKey, JSON.stringify(transactions));
         this.dispatchBridgeUpdate();
+        
+        // Also update in TransactionService for explorer integration
+        const swapStatus = status === 'completed' ? 'confirmed' : 
+                          status === 'failed' ? 'failed' : 'pending';
+        
+        TransactionService.updateTransactionStatus(txId, swapStatus, {
+          txHash: transactions[txIndex].txHash,
+          error: transactions[txIndex].error
+        });
         
         console.log(`Bridge transaction ${txId} updated to ${status}`);
       }

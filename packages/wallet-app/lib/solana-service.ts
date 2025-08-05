@@ -9,7 +9,7 @@ export class SolanaService {
   private network: 'mainnet-beta' | 'testnet' | 'devnet';
   private bridgeWalletKeypair?: Keypair; // In production, load from secure storage
   
-  constructor(network: 'mainnet-beta' | 'testnet' | 'devnet' = 'testnet') {
+  constructor(network: 'mainnet-beta' | 'testnet' | 'devnet' = 'devnet') {
     this.network = network;
     this.connection = new Connection(
       network === 'mainnet-beta' 

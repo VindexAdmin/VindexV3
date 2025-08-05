@@ -9,6 +9,13 @@ interface User {
   firstName?: string | null;
   lastName?: string | null;
   isActive: boolean;
+  roles?: string[];
+}
+
+interface WalletData {
+  mnemonic: string;
+  address: string;
+  privateKey: string;
 }
 
 interface Wallet {
@@ -27,7 +34,7 @@ interface AuthContextType {
   isLoading: boolean;
   api: VindexAPI;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, firstName?: string, lastName?: string) => Promise<void>;
+  register: (email: string, password: string, firstName?: string, lastName?: string, walletData?: WalletData) => Promise<void>;
   logout: () => Promise<void>;
   createWallet: (name?: string) => Promise<Wallet>;
   refreshProfile: () => Promise<void>;
@@ -48,7 +55,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [api] = useState(() => new VindexAPI());
+  const [api] = useState(() => new VindexAPI(''));
 
   const refreshProfile = async () => {
     try {
@@ -90,13 +97,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const register = async (email: string, password: string, firstName?: string, lastName?: string) => {
+  const register = async (email: string, password: string, firstName?: string, lastName?: string, walletData?: WalletData) => {
     setIsLoading(true);
     try {
       const response = await api.register(email, password, firstName, lastName);
       if (response.success) {
         setUser(response.data.user);
-        setWallets(response.data.wallet ? [response.data.wallet] : []);
+        setWallets(response.data.wallets || []);
+        
+        // Verifica si el usuario fue creado correctamente
+        if (!response.data.user || !response.data.user.id) {
+          throw new Error('Failed to create user account');
+        }
       }
     } catch (error) {
       throw error;

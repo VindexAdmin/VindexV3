@@ -21,15 +21,19 @@ interface UnifiedConnection {
   network?: string;
 }
 
-export default function WalletConnector({ onConnectionChange, className = '', preferredWallet = 'phantom' }: WalletConnectorProps) {
+export default function WalletConnector({ onConnectionChange, className }: WalletConnectorProps) {
   const [connection, setConnection] = useState<UnifiedConnection | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCopied, setShowCopied] = useState(false);
+  const [manuallyDisconnected, setManuallyDisconnected] = useState(false);
   const [showWalletSelection, setShowWalletSelection] = useState(false);
 
   useEffect(() => {
-    initializeConnection();
+    // Only initialize connection if not manually disconnected
+    if (!manuallyDisconnected) {
+      initializeConnection();
+    }
     
     // Set up event listeners for both wallets
     const phantomUnsubscribe = phantomWalletService.onAccountChanged((address) => {
@@ -49,7 +53,7 @@ export default function WalletConnector({ onConnectionChange, className = '', pr
     };
 
     const handleSolflareAccountChange = (walletInfo: SolflareWalletInfo | null) => {
-      if (walletInfo && connection?.walletType === 'solflare') {
+      if (walletInfo && walletInfo.publicKey && connection?.walletType === 'solflare') {
         const unifiedConnection: UnifiedConnection = {
           address: walletInfo.publicKey,
           balance: walletInfo.balance || 0,
@@ -69,7 +73,23 @@ export default function WalletConnector({ onConnectionChange, className = '', pr
       solflareWalletService.off('disconnect', handleSolflareDisconnect);
       solflareWalletService.off('accountChanged', handleSolflareAccountChange);
     };
-  }, [connection?.walletType, onConnectionChange]);
+  }, [onConnectionChange]); // Removed connection?.walletType dependency
+
+  // Set up periodic balance refresh when wallet is connected
+  useEffect(() => {
+    if (!connection) return;
+
+    const balanceRefreshInterval = setInterval(async () => {
+      console.log('🔄 Refreshing wallet balance...');
+      if (connection.walletType === 'phantom') {
+        updatePhantomConnection();
+      }
+    }, 30000); // Refresh every 30 seconds
+
+    return () => {
+      clearInterval(balanceRefreshInterval);
+    };
+  }, [connection]);
 
   const initializeConnection = async () => {
     try {
@@ -91,7 +111,7 @@ export default function WalletConnector({ onConnectionChange, className = '', pr
       // Check if Solflare is connected
       if (solflareWalletService.isConnected()) {
         const solflareInfo = solflareWalletService.getWalletInfo();
-        if (solflareInfo) {
+        if (solflareInfo && solflareInfo.publicKey) {
           const unifiedConnection: UnifiedConnection = {
             address: solflareInfo.publicKey,
             balance: solflareInfo.balance || 0,
@@ -128,17 +148,33 @@ export default function WalletConnector({ onConnectionChange, className = '', pr
   };
 
   const handleConnectPhantom = async () => {
+    console.log('WalletConnector: Attempting Phantom connection...');
+    
+    // Run diagnosis first
+    try {
+      await phantomWalletService.diagnoseConnection();
+    } catch (diagError) {
+      console.error('Diagnosis error:', diagError);
+    }
+    
     if (!phantomWalletService.isInstalled()) {
+      console.log('WalletConnector: Phantom not installed, opening install page');
       window.open(phantomWalletService.getInstallUrl(), '_blank');
       return;
     }
 
+    console.log('WalletConnector: Phantom detected, starting connection process');
     setIsConnecting(true);
     setError(null);
     setShowWalletSelection(false);
+    // Reset manual disconnection flag when user manually connects
+    setManuallyDisconnected(false);
 
     try {
+      console.log('WalletConnector: Calling phantomWalletService.connect()');
       const phantomConnection = await phantomWalletService.connect();
+      console.log('WalletConnector: Phantom connection result:', phantomConnection);
+      
       const unifiedConnection: UnifiedConnection = {
         address: phantomConnection.address,
         balance: phantomConnection.balance || 0,
@@ -146,8 +182,11 @@ export default function WalletConnector({ onConnectionChange, className = '', pr
         network: phantomConnection.network,
         walletType: 'phantom'
       };
+      
+      console.log('WalletConnector: Setting unified connection:', unifiedConnection);
       setConnection(unifiedConnection);
       onConnectionChange?.(unifiedConnection);
+      console.log('WalletConnector: Phantom connection successful');
     } catch (error: any) {
       console.error('Phantom connection failed:', error);
       setError(error.message || 'Failed to connect Phantom wallet');
@@ -158,16 +197,23 @@ export default function WalletConnector({ onConnectionChange, className = '', pr
 
   const handleConnectSolflare = async () => {
     if (!solflareWalletService.isInstalled()) {
-      window.open('https://solflare.com', '_blank');
+      setError('Solflare wallet not detected. Please install Solflare extension or use Phantom wallet instead.');
       return;
     }
 
     setIsConnecting(true);
     setError(null);
     setShowWalletSelection(false);
+    // Reset manual disconnection flag when user manually connects
+    setManuallyDisconnected(false);
 
     try {
       const solflareInfo = await solflareWalletService.connect();
+      
+      if (!solflareInfo?.publicKey) {
+        throw new Error('Failed to get wallet address from Solflare');
+      }
+      
       const unifiedConnection: UnifiedConnection = {
         address: solflareInfo.publicKey,
         balance: solflareInfo.balance || 0,
@@ -178,7 +224,14 @@ export default function WalletConnector({ onConnectionChange, className = '', pr
       onConnectionChange?.(unifiedConnection);
     } catch (error: any) {
       console.error('Solflare connection failed:', error);
-      setError(error.message || 'Failed to connect Solflare wallet');
+      // Show user-friendly error message
+      const userMessage = error.message.includes('not installed') 
+        ? 'Solflare wallet not found. Please install it or use Phantom wallet instead.'
+        : error.message.includes('publicKey') || error.message.includes('address')
+        ? 'Unable to get wallet address from Solflare. Please try Phantom wallet instead.'
+        : 'Solflare connection failed. We recommend using Phantom wallet for the best experience.';
+      
+      setError(userMessage);
     } finally {
       setIsConnecting(false);
     }
@@ -186,6 +239,9 @@ export default function WalletConnector({ onConnectionChange, className = '', pr
 
   const handleDisconnect = async () => {
     try {
+      // Mark as manually disconnected to prevent auto-reconnect
+      setManuallyDisconnected(true);
+      
       if (connection?.walletType === 'phantom') {
         await phantomWalletService.disconnect();
       } else if (connection?.walletType === 'solflare') {

@@ -10,13 +10,18 @@ import Navigation from '../../components/ui/Navigation';
 interface Block {
   index: number;
   hash: string;
-  previousHash: string;
   timestamp: number;
+  transactions: Transaction[];
   transactionCount: number;
-  validator?: string;
+  validator: string;
+  previousHash: string;
+  merkleRoot: string;
+  stateRoot: string;
+  totalFees: number;
+  reward: number;
+  size: number;
   difficulty?: number;
-  nonce?: string;
-  merkleRoot?: string;
+  nonce: number;
 }
 
 interface Transaction {
@@ -55,6 +60,11 @@ interface NetworkStats {
   };
 }
 
+const shortenHash = (hash: string) => {
+  if (!hash) return '';
+  return `${hash.slice(0, 6)}...${hash.slice(-4)}`;
+};
+
 export default function Explorer() {
   const { api } = useAuth();
   const [activeTab, setActiveTab] = useState('blocks');
@@ -63,17 +73,30 @@ export default function Explorer() {
   const [networkStats, setNetworkStats] = useState<NetworkStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const blocksPerPage = 50;
 
   useEffect(() => {
     fetchNetworkData();
-    
-    // Suscribirse a actualizaciones de transacciones en tiempo real
+  }, [currentPage]); // Refetch when page changes
+
+  useEffect(() => {
+    // Subscribe to real-time transaction updates
     const unsubscribe = TransactionService.onTransactionUpdate(() => {
-      // Refrescar datos cuando hay nuevas transacciones
-      fetchNetworkData();
+      console.log('🔄 Transaction update detected, refreshing data...');
+      if (currentPage === 1) { // Only auto-refresh first page
+        fetchNetworkData();
+      }
     });
 
-    const interval = setInterval(fetchNetworkData, 15000); // Update every 15 seconds
+    // Auto-refresh every 5 seconds only for the first page
+    const interval = setInterval(() => {
+      console.log('🔄 Auto-refreshing explorer data...');
+      if (currentPage === 1) {
+        fetchNetworkData();
+      }
+    }, 5000); // Update every 5 seconds for a smoother experience
     
     return () => {
       clearInterval(interval);
@@ -84,17 +107,31 @@ export default function Explorer() {
   const fetchNetworkData = async () => {
     try {
       setError('');
+      console.log('📊 Fetching network data...');
       
       // Fetch network stats
       const statsResponse = await api.getBlockchainInfo();
       if (statsResponse.success) {
         setNetworkStats(statsResponse.data);
+        console.log('✅ Network stats loaded:', statsResponse.data);
       }
 
-      // Fetch recent blocks
-      const blocksResponse = await api.getBlocks(10, 0);
-      if (blocksResponse.success) {
-        setBlocks(blocksResponse.data || []);
+      // Fetch recent blocks with pagination
+      const offset = (currentPage - 1) * blocksPerPage;
+      const blocksResponse = await api.getBlocks(blocksPerPage, offset);
+      console.log('📦 Blocks API response:', blocksResponse);
+      
+      if (blocksResponse.success && blocksResponse.data) {
+        // The data array is directly in the response data
+        const blocks = Array.isArray(blocksResponse.data) ? blocksResponse.data : [];
+        setBlocks(blocks.sort((a: Block, b: Block) => b.index - a.index));
+        
+        // For pagination, use the blockchain info for total count since we know the total blocks
+        const totalBlocks = networkStats?.chainLength || blocks.length;
+        setTotalPages(Math.ceil(totalBlocks / blocksPerPage));
+        console.log(`✅ Loaded ${blocks.length} blocks. Page ${currentPage}/${totalPages}`);
+      } else {
+        console.error('❌ Failed to load blocks:', blocksResponse.error);
       }
 
       // Combinar transacciones del blockchain con transacciones locales
@@ -103,12 +140,58 @@ export default function Explorer() {
 
       try {
         // Intentar obtener transacciones del blockchain
+        // Primero intentamos el pool de transacciones pendientes
         const poolResponse = await api.getTransactionPool();
-        if (poolResponse.success && poolResponse.data && poolResponse.data.length > 0) {
+        if (poolResponse.success && poolResponse.data && Array.isArray(poolResponse.data) && poolResponse.data.length > 0) {
+          console.log('✅ Found pending transactions:', poolResponse.data.length);
           blockchainTransactions = poolResponse.data;
+        } else {
+          console.log('ℹ️ No pending transactions found');
+          // Si no hay transacciones pendientes, extraer transacciones de los bloques
+          if (blocksResponse.success && blocksResponse.data && Array.isArray(blocksResponse.data)) {
+            const allTransactions: BlockchainTransaction[] = [];
+            blocksResponse.data.forEach((block: any) => {
+              if (block.transactions && Array.isArray(block.transactions)) {
+                block.transactions.forEach((tx: any) => {
+                  allTransactions.push({
+                    id: tx.id || `${block.hash}-${tx.from}-${tx.to}-${tx.amount}`,
+                    from: tx.from || 'unknown',
+                    to: tx.to || 'unknown',
+                    amount: tx.amount || 0,
+                    type: tx.type || 'transfer',
+                    timestamp: tx.timestamp || block.timestamp,
+                    status: 'confirmed'
+                  });
+                });
+              }
+            });
+            blockchainTransactions = allTransactions.slice(0, 20); // Limitar a 20 transacciones más recientes
+            console.log('✅ Extracted transactions from blocks:', blockchainTransactions.length);
+          }
         }
       } catch (poolError) {
-        console.warn('Could not fetch transactions from blockchain:', poolError);
+        console.warn('⚠️ Could not fetch transactions from blockchain:', poolError);
+        // Fallback: extraer transacciones de los bloques si el pool falla
+        if (blocksResponse.success && blocksResponse.data && Array.isArray(blocksResponse.data)) {
+          const allTransactions: BlockchainTransaction[] = [];
+          blocksResponse.data.forEach((block: any) => {
+            if (block.transactions && Array.isArray(block.transactions)) {
+              block.transactions.forEach((tx: any) => {
+                allTransactions.push({
+                  id: tx.id || `${block.hash}-${tx.from}-${tx.to}-${tx.amount}`,
+                  from: tx.from || 'unknown',
+                  to: tx.to || 'unknown',
+                  amount: tx.amount || 0,
+                  type: tx.type || 'transfer',
+                  timestamp: tx.timestamp || block.timestamp,
+                  status: 'confirmed'
+                });
+              });
+            }
+          });
+          blockchainTransactions = allTransactions.slice(0, 20);
+          console.log('✅ Fallback: Extracted transactions from blocks:', blockchainTransactions.length);
+        }
       }
 
       // Obtener transacciones locales
@@ -187,7 +270,7 @@ export default function Explorer() {
       <Navigation />
 
       {/* Header */}
-      <div className="bg-gradient-to-r from-red-600 to-pink-600 text-white py-12">
+      <div className="bg-gradient-to-r from-red-600 to-pink-600 text-white py-12 pt-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h1 className="text-4xl font-bold mb-4">Vindex Chain Explorer</h1>
           <p className="text-red-100 text-lg">
@@ -277,68 +360,110 @@ export default function Explorer() {
         {/* Tabs */}
         <div className="bg-white rounded-xl shadow-lg overflow-hidden">
           <div className="border-b border-gray-200">
-            <nav className="flex space-x-8 px-6">
+            <div className="flex justify-between items-center px-6">
+              <nav className="flex space-x-8">
+                <button
+                  onClick={() => setActiveTab('blocks')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'blocks'
+                      ? 'border-red-500 text-red-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  Recent Blocks
+                </button>
+                <button
+                  onClick={() => setActiveTab('transactions')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'transactions'
+                      ? 'border-red-500 text-red-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  Recent Transactions
+                </button>
+              </nav>
+              
               <button
-                onClick={() => setActiveTab('blocks')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'blocks'
-                    ? 'border-red-500 text-red-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
+                onClick={fetchNetworkData}
+                disabled={isLoading}
+                className="flex items-center gap-2 px-3 py-1 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-50"
               >
-                Recent Blocks
+                <motion.div
+                  animate={isLoading ? { rotate: 360 } : {}}
+                  transition={{ duration: 1, repeat: isLoading ? Infinity : 0, ease: "linear" }}
+                >
+                  🔄
+                </motion.div>
+                Refresh
               </button>
-              <button
-                onClick={() => setActiveTab('transactions')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'transactions'
-                    ? 'border-red-500 text-red-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                Recent Transactions
-              </button>
-            </nav>
+            </div>
           </div>
 
           <div className="p-6">
             {activeTab === 'blocks' && (
               <div className="space-y-4">
                 {blocks.length > 0 ? (
-                  blocks.map((block) => (
+                  blocks.map((block, index) => (
                     <motion.div
-                      key={block.index}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                      key={block.hash}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3, delay: index * 0.05 }}
+                      className="bg-white p-6 rounded-lg border border-gray-200 hover:border-red-500 hover:shadow-md transition-all cursor-pointer"
                     >
-                      <div className="flex items-center justify-between">
+                      <div className="flex justify-between items-center gap-6">
                         <div className="flex items-center space-x-4">
-                          <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-                            <span className="text-red-600 font-bold">#{block.index}</span>
+                          <div className="bg-red-50 text-red-600 p-3 rounded-lg w-20 text-center flex-shrink-0">
+                            <span className="text-red-600 font-bold text-lg">#{block.index}</span>
                           </div>
                           <div>
-                            <p className="font-semibold text-gray-900">
+                            <p className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
                               Block {shortenHash(block.hash)}
+                              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+                                {formatTimeAgo(block.timestamp)}
+                              </span>
                             </p>
-                            <p className="text-sm text-gray-600">
-                              {block.transactionCount} transactions • {formatTimeAgo(block.timestamp)}
-                            </p>
+                            <div className="flex items-center gap-4 text-sm">
+                              <span className="text-gray-600 flex items-center gap-1">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                </svg>
+                                {block.transactionCount} transactions
+                              </span>
+                              <span className="text-gray-600 flex items-center gap-1">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                {formatTimeAgo(block.timestamp)}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-sm text-gray-600">Validator</p>
-                          <p className="font-medium text-gray-900">
-                            {block.validator || 'Unknown'}
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-sm text-gray-600 mb-1">Validator</p>
+                          <p className="font-medium text-gray-900 flex items-center gap-2">
+                            <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            {shortenHash(block.validator) || 'Unknown'}
                           </p>
                         </div>
                       </div>
                     </motion.div>
                   ))
+                ) : isLoading ? (
+                  <div className="text-center py-12">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600 mx-auto mb-4"></div>
+                    <p className="text-gray-600">Loading blocks...</p>
+                  </div>
                 ) : (
-                  <div className="text-center py-12 text-gray-500">
-                    <p>No blocks found</p>
-                    <p className="text-sm">Make sure the blockchain is running and generating blocks</p>
+                  <div className="text-center py-12 bg-gray-50 rounded-lg border border-gray-200">
+                    <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <p className="text-gray-600 font-medium">No blocks found</p>
+                    <p className="text-sm text-gray-500 mt-2">Make sure the blockchain is running and generating blocks</p>
                   </div>
                 )}
               </div>

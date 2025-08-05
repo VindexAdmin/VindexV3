@@ -28,15 +28,30 @@ export class SolflareWalletService {
   private eventListeners: Map<string, Function[]> = new Map();
 
   constructor() {
-    // Use Solana mainnet for production, devnet for testing
-    this.connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+    // Use Solana devnet for testing and development
+    this.connection = new Connection('https://api.devnet.solana.com', 'confirmed');
+    console.log('Initialized Solflare wallet service with Solana devnet');
   }
 
   /**
    * Check if Solflare wallet is installed
    */
   isInstalled(): boolean {
-    return typeof window !== 'undefined' && !!window.solflare;
+    const isAvailable = typeof window !== 'undefined' && !!window.solflare;
+    console.log('Solflare installation check:', {
+      windowExists: typeof window !== 'undefined',
+      solflareExists: typeof window !== 'undefined' ? !!window.solflare : false,
+      solflareObject: typeof window !== 'undefined' ? window.solflare : 'window not available',
+      solflareKeys: typeof window !== 'undefined' && window.solflare ? Object.keys(window.solflare) : [],
+      hasConnect: typeof window !== 'undefined' && window.solflare ? typeof window.solflare.connect : 'undefined'
+    });
+    
+    // More thorough check - ensure it has the required methods
+    if (isAvailable && window.solflare) {
+      return typeof window.solflare.connect === 'function';
+    }
+    
+    return false;
   }
 
   /**
@@ -59,11 +74,34 @@ export class SolflareWalletService {
   async connect(): Promise<SolflareWalletInfo> {
     try {
       if (!this.isInstalled()) {
-        throw new Error('Solflare wallet is not installed. Please install it from https://solflare.com');
+        throw new Error('Solflare wallet is not installed or properly configured. Please install it from https://solflare.com');
       }
 
-      const response = await window.solflare!.connect();
+      console.log('Attempting to connect to Solflare wallet...');
+      console.log('Available Solflare methods:', Object.keys(window.solflare!));
       
+      // Try to call connect method
+      let response;
+      try {
+        response = await window.solflare!.connect();
+      } catch (connectError) {
+        console.error('Solflare connect method failed:', connectError);
+        throw new Error('Solflare connection failed. This might be because:\n1. Solflare extension is not properly installed\n2. The API has changed\n3. You need to use Phantom wallet instead');
+      }
+      
+      console.log('Solflare connect response:', response);
+      console.log('Response type:', typeof response);
+      console.log('Response keys:', response ? Object.keys(response) : 'null response');
+      
+      if (!response) {
+        throw new Error('Solflare returned empty response. Please try using Phantom wallet instead.');
+      }
+      
+      if (!response.publicKey) {
+        console.error('Missing publicKey in response:', response);
+        throw new Error('Solflare did not provide wallet address. Please try using Phantom wallet instead.');
+      }
+
       this.walletInfo = {
         publicKey: response.publicKey,
         isConnected: true

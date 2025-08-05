@@ -6,6 +6,7 @@ import morgan from 'morgan';
 import { VindexBlockchain } from '../core/VindexBlockchain';
 import { Transaction } from '../core/Transaction';
 import authRoutes from '../routes/auth';
+import { createGovernanceRoutes } from '../governance';
 
 export class VindexAPI {
   private app: express.Application;
@@ -32,6 +33,10 @@ export class VindexAPI {
   private setupRoutes(): void {
     // Authentication routes
     this.app.use('/api/auth', authRoutes);
+
+    // Governance routes
+    const governanceEngine = this.blockchain.getGovernanceEngine();
+    this.app.use('/api/governance', createGovernanceRoutes(governanceEngine));
 
     // Health check
     this.app.get('/health', (req, res) => {
@@ -122,6 +127,22 @@ export class VindexAPI {
       }
     });
 
+    // Get pending transactions (MUST be before /:txId route)
+    this.app.get('/api/transactions/pending', (req, res) => {
+      try {
+        const pending = this.blockchain.getPendingTransactions();
+        const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+        
+        res.json({ 
+          success: true, 
+          data: pending.slice(0, limit).map(tx => tx.toJSON()),
+          total: pending.length
+        });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message || 'Unknown error' });
+      }
+    });
+
     // Get transaction by ID
     this.app.get('/api/transactions/:txId', (req, res) => {
       try {
@@ -135,22 +156,6 @@ export class VindexAPI {
         return res.json({ success: true, data: transaction });
       } catch (error: any) {
         return res.status(500).json({ success: false, error: error.message || 'Unknown error' });
-      }
-    });
-
-    // Get pending transactions
-    this.app.get('/api/transactions/pending', (req, res) => {
-      try {
-        const pending = this.blockchain.getPendingTransactions();
-        const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
-        
-        res.json({ 
-          success: true, 
-          data: pending.slice(0, limit).map(tx => tx.toJSON()),
-          total: pending.length
-        });
-      } catch (error: any) {
-        res.status(500).json({ success: false, error: error.message || 'Unknown error' });
       }
     });
 

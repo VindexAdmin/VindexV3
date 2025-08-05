@@ -25,15 +25,18 @@ export default function Navigation({ onOpenAuth, onOpenWallet }: NavigationProps
   const pathname = usePathname();
 
   const navigationItems = [
-    { href: '/', label: 'Home', icon: '🏠' },
-    { href: '/explorer', label: 'Explorer', icon: '🔍' },
-    { href: '/staking', label: 'Staking', icon: '💎' },
-    { href: '/swap', label: 'Swap', icon: '🔄' },
-    { href: '/bridge', label: 'Bridge', icon: '🌉' },
-    { href: '/admin', label: 'Admin', icon: '⚙️' }
+    { href: '/', label: 'Home' },
+    { href: '/explorer', label: 'Explorer' },
+    { href: '/staking', label: 'Staking' },
+    { href: '/swap', label: 'Swap' },
+    { href: '/bridge', label: 'Bridge' },
+    { href: '/governance', label: 'Governance' },
+    { href: '/validators', label: 'Validators', validatorOnly: true },
+    { href: '/admin', label: 'Admin', adminOnly: true }
   ];
 
   const isActiveLink = (href: string) => {
+    if (!pathname) return false;
     if (href === '/') {
       return pathname === '/';
     }
@@ -56,31 +59,35 @@ export default function Navigation({ onOpenAuth, onOpenWallet }: NavigationProps
       <nav className="fixed top-0 w-full bg-white/95 backdrop-blur-lg border-b border-gray-200 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            
             {/* Logo */}
-            <Link href="/" className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-red-600 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-lg">V</span>
+            <Link href="/" className="flex items-center gap-3 group">
+              <div className="w-9 h-9 bg-red-600 rounded-xl flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
+                <span className="text-white font-extrabold text-2xl tracking-tight">V</span>
               </div>
-              <span className="text-xl font-bold text-gray-900">Vindex Chain</span>
+              <span className="text-2xl font-extrabold text-gray-900 tracking-tight group-hover:text-red-600 transition-colors">Vindex Chain</span>
             </Link>
 
             {/* Desktop Navigation */}
-            <div className="hidden md:flex items-center space-x-1">
-              {navigationItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
-                    isActiveLink(item.href)
-                      ? 'bg-red-100 text-red-700 shadow-sm'
-                      : 'text-gray-600 hover:text-red-600 hover:bg-gray-50'
-                  }`}
-                >
-                  <span className="text-base">{item.icon}</span>
-                  <span>{item.label}</span>
-                </Link>
-              ))}
+            <div className="hidden md:flex items-center gap-2">
+              {navigationItems.map((item) => {
+                // Verificar roles específicos
+                if (item.adminOnly && user?.email !== 'admin@vindex.com') return null;
+                if (item.validatorOnly && !user?.roles?.includes('validator') && user?.email !== 'admin@vindex.com') return null;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`px-5 py-2 rounded-xl text-base font-semibold transition-all duration-200 flex items-center gap-2 shadow-sm border border-transparent ${
+                      isActiveLink(item.href)
+                        ? 'bg-red-600 text-white shadow-lg scale-105 border-red-600'
+                        : 'bg-white text-gray-700 hover:bg-red-50 hover:text-red-600 hover:scale-105'
+                    }`}
+                    style={{ boxShadow: isActiveLink(item.href) ? '0 2px 12px rgba(220,38,38,0.12)' : undefined }}
+                  >
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
             </div>
 
             {/* Right Side - Auth/User Area */}
@@ -100,23 +107,23 @@ export default function Navigation({ onOpenAuth, onOpenWallet }: NavigationProps
 
                     {/* Wallet Button */}
                     <motion.button
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.97 }}
                       onClick={handleWalletClick}
-                      className="flex items-center gap-2 text-sm bg-gray-100 hover:bg-red-50 text-gray-700 hover:text-red-700 px-3 py-2 rounded-lg transition-all duration-200 border hover:border-red-200"
+                      className="flex items-center gap-2 text-base font-semibold bg-gradient-to-r from-red-500 to-red-700 text-white px-5 py-2 rounded-xl shadow-lg hover:from-red-600 hover:to-red-800 transition-all duration-200 border border-red-600 hover:scale-105"
                     >
-                      <WalletIcon className="w-4 h-4" />
-                      <span className="font-medium">
+                      <WalletIcon className="w-5 h-5" />
+                      <span>
                         {wallets.length} {wallets.length === 1 ? 'Wallet' : 'Wallets'}
                       </span>
                     </motion.button>
 
                     {/* Logout Button */}
                     <motion.button
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.97 }}
                       onClick={logout}
-                      className="text-sm text-gray-600 hover:text-red-600 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+                      className="text-base font-semibold text-gray-600 hover:text-red-600 px-5 py-2 rounded-xl hover:bg-red-50 transition-colors border border-transparent hover:border-red-600"
                     >
                       Logout
                     </motion.button>
@@ -125,20 +132,20 @@ export default function Navigation({ onOpenAuth, onOpenWallet }: NavigationProps
                   <div className="flex items-center space-x-3">
                     {/* Sign In Button */}
                     <motion.button
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.97 }}
                       onClick={() => handleAuthClick(true)}
-                      className="text-sm text-gray-600 hover:text-red-600 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+                      className="text-base font-semibold text-gray-600 hover:text-red-600 px-5 py-2 rounded-xl hover:bg-red-50 transition-colors border border-transparent hover:border-red-600"
                     >
                       Sign In
                     </motion.button>
 
                     {/* Get Started Button */}
                     <motion.button
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.97 }}
                       onClick={() => handleAuthClick(false)}
-                      className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 transition-colors font-medium text-sm"
+                      className="bg-gradient-to-r from-red-500 to-red-700 text-white px-6 py-2 rounded-xl hover:from-red-600 hover:to-red-800 transition-colors font-semibold text-base shadow-lg border border-red-600 hover:scale-105"
                     >
                       Get Started
                     </motion.button>
@@ -173,13 +180,12 @@ export default function Navigation({ onOpenAuth, onOpenWallet }: NavigationProps
                     key={item.href}
                     href={item.href}
                     onClick={() => setShowMobileMenu(false)}
-                    className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                    className={`flex items-center px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
                       isActiveLink(item.href)
                         ? 'bg-red-100 text-red-700'
                         : 'text-gray-600 hover:text-red-600 hover:bg-gray-50'
                     }`}
                   >
-                    <span className="text-lg">{item.icon}</span>
                     <span>{item.label}</span>
                   </Link>
                 ))}

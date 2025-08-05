@@ -37,6 +37,14 @@ export class PhantomWalletService {
 
   constructor() {
     this.wallet = this.getPhantomWallet();
+    console.log('Initialized Phantom wallet service with Solana devnet');
+  }
+
+  /**
+   * Get the current network (devnet for development)
+   */
+  getNetwork(): string {
+    return 'devnet';
   }
 
   /**
@@ -45,16 +53,29 @@ export class PhantomWalletService {
   private getPhantomWallet(): PhantomWallet | null {
     if (typeof window === 'undefined') return null;
     
+    console.log('Phantom detection debug:', {
+      windowExists: typeof window !== 'undefined',
+      phantomExists: !!window.phantom,
+      phantomSolanaExists: !!window.phantom?.solana,
+      isPhantom: window.phantom?.solana?.isPhantom,
+      windowSolanaExists: !!window.solana,
+      windowSolanaIsPhantom: window.solana?.isPhantom,
+      allSolanaProviders: Object.keys(window).filter(key => key.toLowerCase().includes('solana') || key.toLowerCase().includes('phantom'))
+    });
+    
     // Check for Phantom wallet
     if (window.phantom?.solana?.isPhantom) {
+      console.log('Found Phantom wallet at window.phantom.solana');
       return window.phantom.solana;
     }
     
     // Fallback to window.solana for older versions
     if (window.solana?.isPhantom) {
+      console.log('Found Phantom wallet at window.solana');
       return window.solana;
     }
     
+    console.log('Phantom wallet not detected');
     return null;
   }
 
@@ -62,7 +83,46 @@ export class PhantomWalletService {
    * Check if Phantom is installed
    */
   isInstalled(): boolean {
-    return this.wallet !== null;
+    const isInstalled = this.wallet !== null;
+    console.log('Phantom isInstalled check:', {
+      walletExists: this.wallet !== null,
+      result: isInstalled
+    });
+    return isInstalled;
+  }
+
+  /**
+   * Diagnostic function to help debug connection issues
+   */
+  async diagnoseConnection(): Promise<void> {
+    console.log('=== PHANTOM WALLET DIAGNOSIS ===');
+    
+    // Check installation
+    console.log('1. Installation Check:');
+    console.log('  - Phantom wallet detected:', this.isInstalled());
+    console.log('  - Wallet object:', this.wallet);
+    
+    if (this.wallet) {
+      console.log('2. Wallet Status:');
+      console.log('  - isConnected:', this.wallet.isConnected);
+      console.log('  - publicKey:', this.wallet.publicKey?.toString() || 'null');
+      
+      console.log('3. Available Methods:');
+      console.log('  - connect:', typeof this.wallet.connect);
+      console.log('  - disconnect:', typeof this.wallet.disconnect);
+      console.log('  - signTransaction:', typeof this.wallet.signTransaction);
+      
+      // Try silent connection
+      try {
+        console.log('4. Testing Silent Connection:');
+        const silentResult = await this.connectSilently();
+        console.log('  - Silent connection result:', silentResult);
+      } catch (error) {
+        console.log('  - Silent connection failed:', error);
+      }
+    }
+    
+    console.log('=== END DIAGNOSIS ===');
   }
 
   /**
@@ -77,18 +137,29 @@ export class PhantomWalletService {
    */
   async connect(): Promise<WalletConnection> {
     try {
+      console.log('Attempting to connect to Phantom wallet...');
+      
       if (!this.wallet) {
+        console.error('Phantom wallet not found');
         throw new Error('Phantom wallet not found. Please install Phantom wallet.');
       }
 
+      console.log('Phantom wallet found, attempting connection...');
+      console.log('Wallet object:', this.wallet);
+      console.log('Wallet isConnected:', this.wallet.isConnected);
+      console.log('Wallet publicKey:', this.wallet.publicKey);
+
       // Try to connect (will show popup if not already connected)
       const response = await this.wallet.connect();
+      console.log('Phantom connect response:', response);
       
       if (!response.publicKey) {
+        console.error('No publicKey in response:', response);
         throw new Error('Failed to connect to Phantom wallet');
       }
 
       const address = response.publicKey.toString();
+      console.log('Connected to Phantom with address:', address);
       
       this.connectionStatus = {
         address,
