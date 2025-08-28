@@ -385,7 +385,8 @@ export class VindexBlockchain {
 
     // Calculate TPS (transactions per second)
     const totalTransactions = this.chain.reduce((sum, block) => sum + block.transactionCount, 0);
-    const tps = totalTime > 0 ? (totalTransactions * 5000) / totalTime : 0;
+  // TPS real: transacciones totales dividido por segundos totales
+  const tps = totalTime > 0 ? totalTransactions / (totalTime / 1000) : 0;
 
     return {
       totalSupply: this.totalSupply,

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Bridge Transaction</title>
+</head>
+<body>
+    <h1>Bridge Transaction Test</h1>
+    <button onclick="createTestTransaction()">Create Test Bridge Transaction</button>
+    <div id="result"></div>
+
+    <script>
+        function createTestTransaction() {
+            const testBridgeTransaction = {
+                id: `test_${Date.now()}`,
+                fromNetwork: 'VDX',
+                toNetwork: 'SOL',
+                fromToken: 'VDX',
+                toToken: 'SOL',
+                fromAmount: 100,
+                toAmount: 0.5,
+                status: 'pending',
+                timestamp: Date.now(),
+                userAddress: 'test_user_address',
+                destinationAddress: 'test_destination_address',
+                bridgeFee: 1,
+                exchangeRate: 0.005
+            };
+
+            // Save to bridge transactions localStorage
+            let bridgeTransactions = [];
+            try {
+                const stored = localStorage.getItem('vindex_bridge_transactions');
+                bridgeTransactions = stored ? JSON.parse(stored) : [];
+            } catch (e) {
+                console.error('Error loading bridge transactions:', e);
+            }
+            
+            bridgeTransactions.unshift(testBridgeTransaction);
+            localStorage.setItem('vindex_bridge_transactions', JSON.stringify(bridgeTransactions));
+
+            // Also create corresponding transaction service entry
+            const swapTransaction = {
+                id: testBridgeTransaction.id,
+                type: 'transfer',
+                from: `${testBridgeTransaction.fromNetwork}:${testBridgeTransaction.userAddress}`,
+                to: `${testBridgeTransaction.toNetwork}:${testBridgeTransaction.destinationAddress}`,
+                amount: testBridgeTransaction.fromAmount,
+                timestamp: testBridgeTransaction.timestamp,
+                status: 'pending',
+                data: {
+                    tokenA: testBridgeTransaction.fromToken,
+                    tokenB: testBridgeTransaction.toToken,
+                    amountIn: testBridgeTransaction.fromAmount,
+                    amountOut: testBridgeTransaction.toAmount,
+                    exchangeRate: testBridgeTransaction.exchangeRate,
+                    fee: testBridgeTransaction.bridgeFee
+                }
+            };
+
+            // Save to transaction service localStorage
+            let vindexTransactions = [];
+            try {
+                const stored = localStorage.getItem('vindex_transactions');
+                vindexTransactions = stored ? JSON.parse(stored) : [];
+            } catch (e) {
+                console.error('Error loading vindex transactions:', e);
+            }
+            
+            vindexTransactions.unshift(swapTransaction);
+            localStorage.setItem('vindex_transactions', JSON.stringify(vindexTransactions));
+
+            document.getElementById('result').innerHTML = `
+                <h3>✅ Test transaction created!</h3>
+                <p><strong>Bridge ID:</strong> ${testBridgeTransaction.id}</p>
+                <p><strong>Bridge:</strong> ${testBridgeTransaction.fromNetwork} → ${testBridgeTransaction.toNetwork}</p>
+                <p><strong>Amount:</strong> ${testBridgeTransaction.fromAmount} ${testBridgeTransaction.fromToken}</p>
+                <p>✅ Saved to both bridge transactions and vindex transactions localStorage</p>
+                <p>🔄 Now refresh the Explorer to see the transaction!</p>
+            `;
+            
+            console.log('✅ Bridge transaction created:', testBridgeTransaction);
+            console.log('✅ Swap transaction created:', swapTransaction);
+        }
+    </script>
+</body>
+</html>

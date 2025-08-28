@@ -1,0 +1,193 @@
+# Vindex Chain - Docker Compose Development Environment
+# This configuration sets up the complete Vindex ecosystem for local development
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: vindex-postgres
+    environment:
+      POSTGRES_DB: vindex_chain
+      POSTGRES_USER: vindex
+      POSTGRES_PASSWORD: vindex_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/pgdata
+      - ./prisma/schema.prisma:/docker-entrypoint-initdb.d/schema.prisma
+    ports:
+      - "5432:5432"
+    networks:
+      - vindex-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vindex -d vindex_chain"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: vindex-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - vindex-network
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Blockchain Core Service
+  blockchain-core:
+    build:
+      context: ./packages/blockchain-core
+      dockerfile: Dockerfile
+    container_name: vindex-blockchain-core
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://vindex:vindex_password@postgres:5432/vindex_chain
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: vindex_development_secret_key_2024
+      CORS_ORIGIN: http://localhost:3000,http://localhost:3005
+    ports:
+      - "3001:3001"
+    networks:
+      - vindex-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./packages/blockchain-core/src:/app/src
+      - blockchain_data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Wallet App
+  wallet-app:
+    build:
+      context: ./packages/wallet-app
+      dockerfile: Dockerfile
+    container_name: vindex-wallet-app
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      BLOCKCHAIN_API_URL: http://blockchain-core:3001
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: vindex_nextauth_secret_2024
+    ports:
+      - "3000:3000"
+    networks:
+      - vindex-network
+    depends_on:
+      blockchain-core:
+        condition: service_healthy
+    volumes:
+      - ./packages/wallet-app/src:/app/src
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Explorer
+  explorer:
+    build:
+      context: ./packages/explorer
+      dockerfile: Dockerfile
+    container_name: vindex-explorer
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      BLOCKCHAIN_API_URL: http://blockchain-core:3001
+      NEXTAUTH_URL: http://localhost:3001
+      NEXTAUTH_SECRET: vindex_explorer_secret_2024
+    ports:
+      - "3006:3001"  # Map to different external port to avoid conflicts
+    networks:
+      - vindex-network
+    depends_on:
+      blockchain-core:
+        condition: service_healthy
+    volumes:
+      - ./packages/explorer/src:/app/src
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Admin Dashboard
+  admin-dashboard:
+    build:
+      context: ./packages/admin-dashboard
+      dockerfile: Dockerfile
+    container_name: vindex-admin-dashboard
+    environment:
+      NODE_ENV: development
+      PORT: 3002
+      BLOCKCHAIN_API_URL: http://blockchain-core:3001
+      NEXTAUTH_URL: http://localhost:3002
+      NEXTAUTH_SECRET: vindex_admin_secret_2024
+    ports:
+      - "3007:3002"  # Map to different external port
+    networks:
+      - vindex-network
+    depends_on:
+      blockchain-core:
+        condition: service_healthy
+    volumes:
+      - ./packages/admin-dashboard/src:/app/src
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: vindex-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+    networks:
+      - vindex-network
+    depends_on:
+      - wallet-app
+      - explorer
+      - admin-dashboard
+      - blockchain-core
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  vindex-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  blockchain_data:
+    driver: local

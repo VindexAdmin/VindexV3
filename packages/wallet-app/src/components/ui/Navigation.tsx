@@ -31,8 +31,7 @@ export default function Navigation({ onOpenAuth, onOpenWallet }: NavigationProps
     { href: '/swap', label: 'Swap' },
     { href: '/bridge', label: 'Bridge' },
     { href: '/governance', label: 'Governance' },
-    { href: '/validators', label: 'Validators', validatorOnly: true },
-    { href: '/admin', label: 'Admin', adminOnly: true }
+    { href: '/admin', label: 'Admin' }
   ];
 
   const isActiveLink = (href: string) => {
@@ -69,25 +68,20 @@ export default function Navigation({ onOpenAuth, onOpenWallet }: NavigationProps
 
             {/* Desktop Navigation */}
             <div className="hidden md:flex items-center gap-2">
-              {navigationItems.map((item) => {
-                // Verificar roles específicos
-                if (item.adminOnly && user?.email !== 'admin@vindex.com') return null;
-                if (item.validatorOnly && !user?.roles?.includes('validator') && user?.email !== 'admin@vindex.com') return null;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`px-5 py-2 rounded-xl text-base font-semibold transition-all duration-200 flex items-center gap-2 shadow-sm border border-transparent ${
-                      isActiveLink(item.href)
-                        ? 'bg-red-600 text-white shadow-lg scale-105 border-red-600'
-                        : 'bg-white text-gray-700 hover:bg-red-50 hover:text-red-600 hover:scale-105'
-                    }`}
-                    style={{ boxShadow: isActiveLink(item.href) ? '0 2px 12px rgba(220,38,38,0.12)' : undefined }}
-                  >
-                    <span>{item.label}</span>
-                  </Link>
-                );
-              })}
+              {navigationItems.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`px-5 py-2 rounded-xl text-base font-semibold transition-all duration-200 flex items-center gap-2 shadow-sm border border-transparent ${
+                    isActiveLink(item.href)
+                      ? 'bg-red-600 text-white shadow-lg scale-105 border-red-600'
+                      : 'bg-white text-gray-700 hover:bg-red-50 hover:text-red-600 hover:scale-105'
+                  }`}
+                  style={{ boxShadow: isActiveLink(item.href) ? '0 2px 12px rgba(220,38,38,0.12)' : undefined }}
+                >
+                  <span>{item.label}</span>
+                </Link>
+              ))}
             </div>
 
             {/* Right Side - Auth/User Area */}

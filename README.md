@@ -8,7 +8,62 @@
 
 > **The future of decentralized finance - A complete blockchain ecosystem with Proof of Stake consensus, built-in staking, DEX functionality, and modern user interfaces.**
 
-## 🚀 Overview
+
+## �‍💻 Para Nuevos Desarrolladores
+
+Bienvenido al ecosistema Vindex Chain. Este monorepo contiene **toda la infraestructura, backend, frontend, explorer y panel de administración** de la blockchain Vindex. Si quieres replicar el proyecto, contribuir o entender cómo funciona, sigue estas instrucciones y lee el resumen al final.
+
+### ¿Cómo levantar todo el ecosistema?
+
+1. Clona el repositorio:
+	```bash
+	git clone https://github.com/VindexAdmin/vindex-chain.git
+	cd vindex-chain
+	```
+2. Instala todas las dependencias:
+	```bash
+	npm install
+	```
+3. Levanta **todo el ecosistema** (backend, wallet, explorer, admin) con un solo comando:
+	```bash
+	npm run dev
+	```
+	Esto ejecuta todos los servicios en paralelo usando workspaces. Espera unos segundos y accede a:
+	- Blockchain Core API: http://localhost:3001
+	- Wallet App: http://localhost:3005
+	- Explorer: http://localhost:3002
+	- Admin Dashboard: http://localhost:3003
+
+> Si solo quieres levantar un servicio, usa los scripts individuales (ver más abajo).
+
+### Troubleshooting rápido
+
+- Si algún puerto está ocupado (por ejemplo, 3005), ciérralo con:
+  ```bash
+  lsof -i :3005 | grep LISTEN | awk '{print $2}' | xargs kill -9
+  ```
+- Si tienes errores de dependencias, ejecuta:
+  ```bash
+  npm install && npm run build
+  ```
+- Si la base de datos no refleja los cambios, revisa las migraciones Prisma en `blockchain-core`.
+
+---
+
+## 📝 Prompt/Resumen del Proyecto (para replicar o entender el stack)
+
+```
+Quiero replicar el ecosistema Vindex Chain, una blockchain Proof of Stake con supply fijo, sistema de staking, DEX, anti-spam, y métricas reales. El stack es:
+- Monorepo con npm workspaces
+- Backend TypeScript/Node.js (blockchain-core, API REST, Prisma/Postgres)
+- Frontend Next.js/React (wallet-app, explorer, admin-dashboard)
+- Tailwind CSS para UI
+- Scripts unificados para levantar todo con `npm run dev`
+- Seguridad, logging y validaciones siguiendo mejores prácticas cripto
+El objetivo es tener una red pública con 3 validadores, supply de 1B VDX, burn mechanism, y experiencia de usuario moderna. Todo el código y la infraestructura están en este repo.
+```
+
+---
 
 Vindex Chain is a comprehensive blockchain cryptocurrency ecosystem featuring:
 

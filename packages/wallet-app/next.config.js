@@ -10,6 +10,30 @@ const nextConfig = {
   images: {
     domains: ['localhost'],
   },
+  async rewrites() {
+    return [
+      {
+        source: '/api/auth/:path*',
+        destination: 'http://localhost:3001/api/auth/:path*',
+      },
+      {
+        source: '/api/transactions/pending',
+        destination: 'http://localhost:3001/api/transactions/pending',
+      },
+      {
+        source: '/api/blocks/:path*',
+        destination: 'http://localhost:3001/api/blocks/:path*',
+      },
+      {
+        source: '/api/transactions/:path*',
+        destination: 'http://localhost:3001/api/transactions/:path*',
+      },
+      {
+        source: '/api/blockchain/:path*',
+        destination: 'http://localhost:3001/api/blockchain/:path*',
+      },
+    ];
+  },
   webpack: (config) => {
     config.resolve.fallback = {
       ...config.resolve.fallback,

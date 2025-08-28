@@ -11,14 +11,22 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@ethersproject/hdnode": "^5.8.0",
     "@mysten/sui.js": "^0.54.1",
+    "@prisma/client": "^6.13.0",
     "@solana/spl-token": "^0.4.13",
     "@solana/web3.js": "^1.98.2",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "axios": "^1.6.2",
+    "bcryptjs": "^3.0.2",
+    "bitcoinjs-lib": "^6.1.7",
     "clsx": "^2.0.0",
     "crypto-js": "^4.2.0",
     "date-fns": "^2.30.0",
-    "framer-motion": "^10.16.16",
+    "ethers": "^6.15.0",
+    "framer-motion": "^12.23.12",
+    "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.300.0",
     "next": "^14.0.4",
     "qrcode": "^1.5.3",
@@ -30,6 +38,7 @@
     "react-qr-code": "^2.0.12",
     "recharts": "^2.8.0",
     "tailwind-merge": "^2.2.0",
+    "web3": "^4.16.0",
     "xrpl": "^4.3.0"
   },
   "devDependencies": {

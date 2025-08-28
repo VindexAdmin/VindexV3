@@ -1,0 +1,580 @@
+openapi: 3.0.3
+info:
+  title: Vindex Bridge API
+  description: |
+    Cross-chain bridge API for Vindex ecosystem enabling secure token transfers 
+    between VDX and other supported blockchains (Solana, XRP, Sui).
+    
+    ## Features
+    - **Multi-chain support**: VDX, SOL, XRP, SUI
+    - **Enhanced retry logic**: Automatic retry with exponential backoff
+    - **Real-time monitoring**: Transaction status tracking
+    - **Comprehensive validation**: Pre-transaction validation
+    - **Rate limiting**: API protection and fair usage
+    - **Webhook support**: Real-time notifications
+    
+  version: "1.0.0"
+  contact:
+    name: Vindex Bridge Support
+    email: bridge-support@vindexchain.com
+    url: https://docs.vindexchain.com/bridge
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://bridge.vindexchain.com/api/v1
+    description: Production server
+  - url: http://localhost:3001/api/v1
+    description: Development server
+
+security:
+  - WalletAuth: []
+
+paths:
+  /bridge/create:
+    post:
+      summary: Create Bridge Transaction
+      description: Creates a new cross-chain bridge transaction
+      operationId: createBridgeTransaction
+      tags: [Bridge Transactions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBridgeRequest'
+            examples:
+              vdx_to_sol:
+                summary: VDX to Solana bridge
+                value:
+                  fromNetwork: "VDX"
+                  toNetwork: "SOL"
+                  fromAmount: 100.0
+                  toAddress: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
+                  slippage: 1.0
+                  priority: "normal"
+      responses:
+        '201':
+          description: Bridge transaction created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BridgeTransactionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimit'
+
+  /bridge/status/{transactionId}:
+    get:
+      summary: Get Transaction Status
+      description: Retrieves current status and details of a bridge transaction
+      operationId: getBridgeTransactionStatus
+      tags: [Bridge Transactions]
+      parameters:
+        - name: transactionId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "bridge_12345678"
+      responses:
+        '200':
+          description: Transaction status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionStatusResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /bridge/validate:
+    post:
+      summary: Validate Bridge Parameters
+      description: Validates bridge transaction parameters before execution
+      operationId: validateBridgeTransaction
+      tags: [Bridge Validation]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidateBridgeRequest'
+      responses:
+        '200':
+          description: Validation completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResponse'
+
+  /bridge/networks:
+    get:
+      summary: Get Supported Networks
+      description: Returns all supported networks and their configurations
+      operationId: getSupportedNetworks
+      tags: [Bridge Configuration]
+      responses:
+        '200':
+          description: Supported networks retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworksResponse'
+
+  /bridge/history:
+    get:
+      summary: Get Transaction History
+      description: Retrieves user's bridge transaction history
+      operationId: getBridgeHistory
+      tags: [Bridge Transactions]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, processing, completed, failed, all]
+            default: all
+        - name: fromNetwork
+          in: query
+          schema:
+            type: string
+        - name: toNetwork
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transaction history retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistoryResponse'
+
+  /bridge/stats:
+    get:
+      summary: Get Bridge Statistics
+      description: Returns comprehensive bridge statistics and metrics
+      operationId: getBridgeStatistics
+      tags: [Bridge Analytics]
+      responses:
+        '200':
+          description: Bridge statistics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsResponse'
+
+  /bridge/retry/{transactionId}:
+    post:
+      summary: Retry Failed Transaction
+      description: Retries a failed bridge transaction with enhanced parameters
+      operationId: retryBridgeTransaction
+      tags: [Bridge Transactions]
+      parameters:
+        - name: transactionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetryRequest'
+      responses:
+        '200':
+          description: Retry initiated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BridgeTransactionResponse'
+
+  /bridge/status/bulk:
+    post:
+      summary: Bulk Status Check
+      description: Check status of multiple transactions at once
+      operationId: getBulkTransactionStatus
+      tags: [Bridge Transactions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkStatusRequest'
+      responses:
+        '200':
+          description: Bulk status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkStatusResponse'
+
+components:
+  securitySchemes:
+    WalletAuth:
+      type: http
+      scheme: bearer
+      description: Wallet signature for authentication
+
+  schemas:
+    CreateBridgeRequest:
+      type: object
+      required:
+        - fromNetwork
+        - toNetwork
+        - fromAmount
+        - toAddress
+      properties:
+        fromNetwork:
+          type: string
+          enum: [VDX, SOL, XRP, SUI]
+          example: "VDX"
+        toNetwork:
+          type: string
+          enum: [VDX, SOL, XRP, SUI]
+          example: "SOL"
+        fromAmount:
+          type: number
+          minimum: 0.000001
+          example: 100.0
+        toAddress:
+          type: string
+          example: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
+        slippage:
+          type: number
+          minimum: 0.1
+          maximum: 10.0
+          default: 1.0
+        priority:
+          type: string
+          enum: [low, normal, high]
+          default: normal
+
+    BridgeTransaction:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "bridge_12345678"
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        fromNetwork:
+          type: string
+        toNetwork:
+          type: string
+        fromToken:
+          type: string
+        toToken:
+          type: string
+        fromAmount:
+          type: number
+        toAmount:
+          type: number
+        exchangeRate:
+          type: number
+        bridgeFee:
+          type: number
+        txHash:
+          type: string
+        destinationTxHash:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+        estimatedCompletion:
+          type: integer
+          format: int64
+        retryAttempt:
+          type: integer
+        totalAttempts:
+          type: integer
+        error:
+          type: string
+
+    BridgeTransactionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/BridgeTransaction'
+        error:
+          type: string
+
+    TransactionStatusResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          allOf:
+            - $ref: '#/components/schemas/BridgeTransaction'
+            - type: object
+              properties:
+                progress:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+                confirmations:
+                  type: integer
+                requiredConfirmations:
+                  type: integer
+
+    ValidateBridgeRequest:
+      type: object
+      required:
+        - fromNetwork
+        - toNetwork
+        - fromAmount
+        - userAddress
+      properties:
+        fromNetwork:
+          type: string
+        toNetwork:
+          type: string
+        fromAmount:
+          type: number
+        userAddress:
+          type: string
+
+    ValidationResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            isValid:
+              type: boolean
+            errors:
+              type: array
+              items:
+                type: string
+            warnings:
+              type: array
+              items:
+                type: string
+            estimatedGas:
+              type: number
+            minimumAmount:
+              type: number
+            maximumAmount:
+              type: number
+            exchangeRate:
+              type: number
+            totalFee:
+              type: number
+
+    NetworkConfiguration:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        symbol:
+          type: string
+        chainId:
+          type: integer
+        status:
+          type: string
+          enum: [active, maintenance, disabled]
+        exchangeRate:
+          type: number
+        fee:
+          type: number
+        minAmount:
+          type: number
+        maxAmount:
+          type: number
+        estimatedTime:
+          type: string
+        contractAddress:
+          type: string
+        explorerUrl:
+          type: string
+
+    NetworksResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkConfiguration'
+
+    HistoryResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            transactions:
+              type: array
+              items:
+                $ref: '#/components/schemas/BridgeTransaction'
+            total:
+              type: integer
+            hasMore:
+              type: boolean
+
+    StatisticsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            totalTransactions:
+              type: integer
+            totalVolume:
+              type: number
+            recentTransactionCount:
+              type: integer
+            successRate:
+              type: number
+            averageRetries:
+              type: number
+            retrySuccessRate:
+              type: number
+            networkStats:
+              type: object
+              additionalProperties:
+                type: object
+                properties:
+                  totalVolume:
+                    type: number
+                  transactionCount:
+                    type: integer
+                  successRate:
+                    type: number
+
+    RetryRequest:
+      type: object
+      properties:
+        maxRetries:
+          type: integer
+          minimum: 1
+          maximum: 5
+          default: 3
+        baseDelay:
+          type: integer
+          minimum: 1000
+          maximum: 10000
+          default: 2000
+        priority:
+          type: string
+          enum: [low, normal, high]
+          default: normal
+
+    BulkStatusRequest:
+      type: object
+      required:
+        - transactionIds
+      properties:
+        transactionIds:
+          type: array
+          items:
+            type: string
+          maxItems: 20
+
+    BulkStatusResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BridgeTransaction'
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        code:
+          type: integer
+        details:
+          type: object
+
+  responses:
+    BadRequest:
+      description: Bad request - invalid parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: "Invalid network configuration"
+            code: 1001
+
+    Unauthorized:
+      description: Unauthorized - invalid wallet signature
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: "Invalid wallet signature"
+            code: 1009
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: "Transaction not found"
+            code: 404
+
+    RateLimit:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: "Rate limit exceeded"
+            code: 1010
+
+tags:
+  - name: Bridge Transactions
+    description: Core bridge transaction operations
+  - name: Bridge Validation
+    description: Transaction validation and verification
+  - name: Bridge Configuration
+    description: Network and configuration management
+  - name: Bridge Analytics
+    description: Statistics and monitoring

@@ -1,4 +1,9 @@
 {
   "/page": "app/page.js",
+  "/staking/page": "app/staking/page.js",
+  "/bridge/page": "app/bridge/page.js",
+  "/swap/page": "app/swap/page.js",
+  "/governance/page": "app/governance/page.js",
+  "/admin/page": "app/admin/page.js",
   "/explorer/page": "app/explorer/page.js"
 }

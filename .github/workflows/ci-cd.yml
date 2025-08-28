@@ -1,0 +1,307 @@
+# Vindex Chain CI/CD Pipeline
+# Automated testing, building, and deployment workflow
+
+name: Vindex Chain CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: vindex-chain
+
+jobs:
+  # Test Job
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vindex_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: |
+        npm ci
+        cd packages/blockchain-core && npm ci
+        cd ../wallet-app && npm ci
+        cd ../explorer && npm ci
+        cd ../admin-dashboard && npm ci
+
+    - name: Run linting
+      run: |
+        npm run lint
+        cd packages/blockchain-core && npm run lint
+        cd ../wallet-app && npm run lint
+
+    - name: Run type checking
+      run: |
+        cd packages/blockchain-core && npm run type-check
+        cd ../wallet-app && npm run type-check
+
+    - name: Setup test database
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vindex_test
+      run: |
+        cd packages/blockchain-core
+        npx prisma migrate deploy
+        npx prisma generate
+
+    - name: Run unit tests
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vindex_test
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test_secret
+      run: |
+        cd packages/blockchain-core && npm test
+        cd ../wallet-app && npm test
+
+    - name: Run integration tests
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vindex_test
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test_secret
+      run: |
+        cd packages/blockchain-core && npm run test:integration
+
+  # Security Scan
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: Run npm audit
+      run: |
+        npm audit --audit-level high
+        cd packages/blockchain-core && npm audit --audit-level high
+        cd ../wallet-app && npm audit --audit-level high
+
+  # Build and Push Docker Images
+  build:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [test, security]
+    if: github.event_name == 'push'
+    
+    strategy:
+      matrix:
+        service: [blockchain-core, wallet-app, explorer, admin-dashboard]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./packages/${{ matrix.service }}
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+          GIT_COMMIT=${{ github.sha }}
+
+  # Deploy to Staging
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure kubectl
+      uses: azure/k8s-set-context@v3
+      with:
+        method: kubeconfig
+        kubeconfig: ${{ secrets.KUBE_CONFIG_STAGING }}
+
+    - name: Deploy to staging
+      run: |
+        # Update image tags in k8s manifests
+        sed -i "s|vindex/blockchain-core:latest|${{ env.REGISTRY }}/${{ github.repository }}/blockchain-core:develop-${{ github.sha }}|g" k8s/staging.yaml
+        sed -i "s|vindex/wallet-app:latest|${{ env.REGISTRY }}/${{ github.repository }}/wallet-app:develop-${{ github.sha }}|g" k8s/staging.yaml
+        sed -i "s|vindex/explorer:latest|${{ env.REGISTRY }}/${{ github.repository }}/explorer:develop-${{ github.sha }}|g" k8s/staging.yaml
+        sed -i "s|vindex/admin-dashboard:latest|${{ env.REGISTRY }}/${{ github.repository }}/admin-dashboard:develop-${{ github.sha }}|g" k8s/staging.yaml
+        
+        kubectl apply -f k8s/staging.yaml
+        kubectl rollout status deployment/blockchain-core -n vindex-staging --timeout=300s
+        kubectl rollout status deployment/wallet-app -n vindex-staging --timeout=300s
+
+    - name: Run smoke tests
+      run: |
+        # Wait for services to be ready
+        sleep 60
+        
+        # Health check endpoints
+        curl -f https://staging-api.vindex.io/api/health
+        curl -f https://staging-wallet.vindex.io/api/health
+        curl -f https://staging-explorer.vindex.io/api/health
+
+  # Deploy to Production
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure kubectl
+      uses: azure/k8s-set-context@v3
+      with:
+        method: kubeconfig
+        kubeconfig: ${{ secrets.KUBE_CONFIG_PRODUCTION }}
+
+    - name: Deploy to production
+      run: |
+        # Update image tags in k8s manifests
+        sed -i "s|vindex/blockchain-core:latest|${{ env.REGISTRY }}/${{ github.repository }}/blockchain-core:main-${{ github.sha }}|g" k8s/production.yaml
+        sed -i "s|vindex/wallet-app:latest|${{ env.REGISTRY }}/${{ github.repository }}/wallet-app:main-${{ github.sha }}|g" k8s/production.yaml
+        sed -i "s|vindex/explorer:latest|${{ env.REGISTRY }}/${{ github.repository }}/explorer:main-${{ github.sha }}|g" k8s/production.yaml
+        sed -i "s|vindex/admin-dashboard:latest|${{ env.REGISTRY }}/${{ github.repository }}/admin-dashboard:main-${{ github.sha }}|g" k8s/production.yaml
+        
+        kubectl apply -f k8s/production.yaml
+        kubectl rollout status deployment/blockchain-core -n vindex-chain --timeout=600s
+        kubectl rollout status deployment/wallet-app -n vindex-chain --timeout=300s
+        kubectl rollout status deployment/explorer -n vindex-chain --timeout=300s
+
+    - name: Run production health checks
+      run: |
+        # Wait for services to be ready
+        sleep 120
+        
+        # Health check all production endpoints
+        curl -f https://api.vindex.io/api/health
+        curl -f https://wallet.vindex.io/api/health
+        curl -f https://explorer.vindex.io/api/health
+        curl -f https://admin.vindex.io/api/health
+
+    - name: Notify deployment success
+      uses: 8398a7/action-slack@v3
+      if: success()
+      with:
+        status: success
+        text: "🚀 Vindex Chain production deployment successful! Version: ${{ github.sha }}"
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    - name: Notify deployment failure
+      uses: 8398a7/action-slack@v3
+      if: failure()
+      with:
+        status: failure
+        text: "❌ Vindex Chain production deployment failed! Version: ${{ github.sha }}"
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # Performance Testing
+  performance:
+    name: Performance Testing
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    if: github.ref == 'refs/heads/develop'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run load tests
+      run: |
+        # Install k6
+        sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+        echo "deb https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+        sudo apt-get update
+        sudo apt-get install k6
+        
+        # Run performance tests
+        k6 run --out json=performance-results.json tests/performance/load-test.js
+
+    - name: Upload performance results
+      uses: actions/upload-artifact@v4
+      with:
+        name: performance-results
+        path: performance-results.json

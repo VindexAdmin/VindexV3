@@ -9,13 +9,6 @@ interface User {
   firstName?: string | null;
   lastName?: string | null;
   isActive: boolean;
-  roles?: string[];
-}
-
-interface WalletData {
-  mnemonic: string;
-  address: string;
-  privateKey: string;
 }
 
 interface Wallet {
@@ -32,9 +25,10 @@ interface AuthContextType {
   wallets: Wallet[];
   isAuthenticated: boolean;
   isLoading: boolean;
+  error: string | null;
   api: VindexAPI;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, firstName?: string, lastName?: string, walletData?: WalletData) => Promise<void>;
+  register: (email: string, password: string, firstName?: string, lastName?: string) => Promise<void>;
   logout: () => Promise<void>;
   createWallet: (name?: string) => Promise<Wallet>;
   refreshProfile: () => Promise<void>;
@@ -51,11 +45,17 @@ export const useAuth = () => {
   return context;
 };
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+interface AuthProviderProps {
+  children: React.ReactNode;
+}
+
+function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [api] = useState(() => new VindexAPI(''));
+  const [error, setError] = useState<string | null>(null);
+  // Forzar siempre la URL del backend para evitar rutas Next.js locales
+  const [api] = useState(() => new VindexAPI('http://localhost:3001'));
 
   const refreshProfile = async () => {
     try {
@@ -84,34 +84,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password: string) => {
     setIsLoading(true);
+    setError(null);
     try {
       const response = await api.login(email, password);
       if (response.success) {
         setUser(response.data.user);
         setWallets(response.data.wallets || []);
+      } else {
+        setError(response.error || 'Login failed');
       }
-    } catch (error) {
-      throw error;
+    } catch (err: any) {
+      setError(err.message || 'Login failed');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const register = async (email: string, password: string, firstName?: string, lastName?: string, walletData?: WalletData) => {
+  const register = async (email: string, password: string, firstName?: string, lastName?: string) => {
     setIsLoading(true);
+    setError(null);
     try {
       const response = await api.register(email, password, firstName, lastName);
       if (response.success) {
         setUser(response.data.user);
-        setWallets(response.data.wallets || []);
-        
-        // Verifica si el usuario fue creado correctamente
-        if (!response.data.user || !response.data.user.id) {
-          throw new Error('Failed to create user account');
-        }
+        setWallets(response.data.wallet ? [response.data.wallet] : []);
+      } else {
+        setError(response.error || 'Registration failed');
       }
-    } catch (error) {
-      throw error;
+    } catch (err: any) {
+      setError(err.message || 'Registration failed');
     } finally {
       setIsLoading(false);
     }
@@ -119,6 +120,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     setIsLoading(true);
+    setError(null);
     try {
       await api.logout();
     } catch (error) {
@@ -166,6 +168,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     wallets,
     isAuthenticated: !!user,
     isLoading,
+    error,
     api,
     login,
     register,
@@ -180,6 +183,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       {children}
     </AuthContext.Provider>
   );
-};
+}
 
 export default AuthProvider;
+export { AuthProvider };

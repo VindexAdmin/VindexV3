@@ -10,18 +10,13 @@ import Navigation from '../../components/ui/Navigation';
 interface Block {
   index: number;
   hash: string;
-  timestamp: number;
-  transactions: Transaction[];
-  transactionCount: number;
-  validator: string;
   previousHash: string;
-  merkleRoot: string;
-  stateRoot: string;
-  totalFees: number;
-  reward: number;
-  size: number;
+  timestamp: number;
+  transactionCount: number;
+  validator?: string;
   difficulty?: number;
-  nonce: number;
+  nonce?: string;
+  merkleRoot?: string;
 }
 
 interface Transaction {
@@ -60,11 +55,6 @@ interface NetworkStats {
   };
 }
 
-const shortenHash = (hash: string) => {
-  if (!hash) return '';
-  return `${hash.slice(0, 6)}...${hash.slice(-4)}`;
-};
-
 export default function Explorer() {
   const { api } = useAuth();
   const [activeTab, setActiveTab] = useState('blocks');
@@ -73,30 +63,22 @@ export default function Explorer() {
   const [networkStats, setNetworkStats] = useState<NetworkStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const blocksPerPage = 50;
 
   useEffect(() => {
     fetchNetworkData();
-  }, [currentPage]); // Refetch when page changes
-
-  useEffect(() => {
-    // Subscribe to real-time transaction updates
+    
+    // Suscribirse a actualizaciones de transacciones en tiempo real
     const unsubscribe = TransactionService.onTransactionUpdate(() => {
+      // Refrescar datos cuando hay nuevas transacciones
       console.log('🔄 Transaction update detected, refreshing data...');
-      if (currentPage === 1) { // Only auto-refresh first page
-        fetchNetworkData();
-      }
+      fetchNetworkData();
     });
 
-    // Auto-refresh every 5 seconds only for the first page
+    // Actualizar cada 10 segundos para capturar nuevos bloques
     const interval = setInterval(() => {
       console.log('🔄 Auto-refreshing explorer data...');
-      if (currentPage === 1) {
-        fetchNetworkData();
-      }
-    }, 5000); // Update every 5 seconds for a smoother experience
+      fetchNetworkData();
+    }, 10000); // Update every 10 seconds
     
     return () => {
       clearInterval(interval);
@@ -116,20 +98,14 @@ export default function Explorer() {
         console.log('✅ Network stats loaded:', statsResponse.data);
       }
 
-      // Fetch recent blocks with pagination
-      const offset = (currentPage - 1) * blocksPerPage;
-      const blocksResponse = await api.getBlocks(blocksPerPage, offset);
+      // Fetch recent blocks
+      const blocksResponse = await api.getBlocks(10, 0);
       console.log('📦 Blocks API response:', blocksResponse);
       
-      if (blocksResponse.success && blocksResponse.data) {
-        // The data array is directly in the response data
-        const blocks = Array.isArray(blocksResponse.data) ? blocksResponse.data : [];
-        setBlocks(blocks.sort((a: Block, b: Block) => b.index - a.index));
-        
-        // For pagination, use the blockchain info for total count since we know the total blocks
-        const totalBlocks = networkStats?.chainLength || blocks.length;
-        setTotalPages(Math.ceil(totalBlocks / blocksPerPage));
-        console.log(`✅ Loaded ${blocks.length} blocks. Page ${currentPage}/${totalPages}`);
+      if (blocksResponse.success) {
+        const blocksData = blocksResponse.data || [];
+        setBlocks(blocksData);
+        console.log(`✅ Loaded ${blocksData.length} blocks:`, blocksData.map((b: Block) => `#${b.index}`));
       } else {
         console.error('❌ Failed to load blocks:', blocksResponse.error);
       }
@@ -404,66 +380,40 @@ export default function Explorer() {
             {activeTab === 'blocks' && (
               <div className="space-y-4">
                 {blocks.length > 0 ? (
-                  blocks.map((block, index) => (
+                  blocks.map((block) => (
                     <motion.div
-                      key={block.hash}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.3, delay: index * 0.05 }}
-                      className="bg-white p-6 rounded-lg border border-gray-200 hover:border-red-500 hover:shadow-md transition-all cursor-pointer"
+                      key={block.index}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
                     >
-                      <div className="flex justify-between items-center gap-6">
+                      <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-4">
-                          <div className="bg-red-50 text-red-600 p-3 rounded-lg w-20 text-center flex-shrink-0">
-                            <span className="text-red-600 font-bold text-lg">#{block.index}</span>
+                          <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+                            <span className="text-red-600 font-bold">#{block.index}</span>
                           </div>
                           <div>
-                            <p className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                            <p className="font-semibold text-gray-900">
                               Block {shortenHash(block.hash)}
-                              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
-                                {formatTimeAgo(block.timestamp)}
-                              </span>
                             </p>
-                            <div className="flex items-center gap-4 text-sm">
-                              <span className="text-gray-600 flex items-center gap-1">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                </svg>
-                                {block.transactionCount} transactions
-                              </span>
-                              <span className="text-gray-600 flex items-center gap-1">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                {formatTimeAgo(block.timestamp)}
-                              </span>
-                            </div>
+                            <p className="text-sm text-gray-600">
+                              {block.transactionCount} transactions • {formatTimeAgo(block.timestamp)}
+                            </p>
                           </div>
                         </div>
-                        <div className="text-right flex-shrink-0">
-                          <p className="text-sm text-gray-600 mb-1">Validator</p>
-                          <p className="font-medium text-gray-900 flex items-center gap-2">
-                            <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            {shortenHash(block.validator) || 'Unknown'}
+                        <div className="text-right">
+                          <p className="text-sm text-gray-600">Validator</p>
+                          <p className="font-medium text-gray-900">
+                            {block.validator || 'Unknown'}
                           </p>
                         </div>
                       </div>
                     </motion.div>
                   ))
-                ) : isLoading ? (
-                  <div className="text-center py-12">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600 mx-auto mb-4"></div>
-                    <p className="text-gray-600">Loading blocks...</p>
-                  </div>
                 ) : (
-                  <div className="text-center py-12 bg-gray-50 rounded-lg border border-gray-200">
-                    <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                    </svg>
-                    <p className="text-gray-600 font-medium">No blocks found</p>
-                    <p className="text-sm text-gray-500 mt-2">Make sure the blockchain is running and generating blocks</p>
+                  <div className="text-center py-12 text-gray-500">
+                    <p>No blocks found</p>
+                    <p className="text-sm">Make sure the blockchain is running and generating blocks</p>
                   </div>
                 )}
               </div>

@@ -1,0 +1,190 @@
+.popup-container {
+  width: 350px;
+  height: 500px;
+  padding: 20px;
+  background: linear-gradient(135deg, #000000 0%, #1a1a1a 100%);
+  color: white;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 30px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #333;
+}
+
+.logo {
+  width: 32px;
+  height: 32px;
+  margin-right: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #DC2626;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+  font-size: 16px;
+}
+
+.wallet-connected {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.address {
+  margin-bottom: 20px;
+}
+
+.address label {
+  display: block;
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 5px;
+}
+
+.address-text {
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 14px;
+  background: #333;
+  padding: 8px 12px;
+  border-radius: 6px;
+  display: block;
+}
+
+.balance {
+  text-align: center;
+  margin: 30px 0;
+  padding: 20px;
+  background: #222;
+  border-radius: 12px;
+  border: 2px solid #DC2626;
+}
+
+.amount {
+  display: block;
+  font-size: 28px;
+  font-weight: bold;
+  color: #DC2626;
+  margin-bottom: 5px;
+}
+
+.currency {
+  font-size: 14px;
+  color: #999;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: auto;
+  margin-bottom: 20px;
+}
+
+.wallet-disconnected {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.wallet-disconnected p {
+  margin-bottom: 30px;
+  color: #999;
+  font-size: 16px;
+}
+
+.btn {
+  padding: 12px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex: 1;
+  margin-bottom: 10px;
+}
+
+.btn-primary {
+  background: #DC2626;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #B91C1C;
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: #DC2626;
+  border: 1px solid #DC2626;
+}
+
+.btn-secondary:hover {
+  background: #DC2626;
+  color: white;
+}
+
+.footer {
+  text-align: center;
+  padding-top: 15px;
+  border-top: 1px solid #333;
+  font-size: 12px;
+  color: #666;
+}
+
+/* Legacy styles for compatibility */
+body {
+    background-color: transparent;
+    color: #000000;
+    font-family: 'Arial', sans-serif;
+    margin: 0;
+    padding: 0;
+}
+
+h1 {
+    font-size: 24px;
+    margin-bottom: 10px;
+    color: #DC2626;
+}
+
+.wallet-info {
+    margin-top: 20px;
+}
+
+.button {
+    background-color: #DC2626;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 4px;
+    padding: 10px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.button:hover {
+    background-color: #B91C1C;
+}
+
+.error-message {
+    color: red;
+    font-size: 14px;
+    margin-top: 10px;
+}

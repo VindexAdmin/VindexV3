@@ -60,9 +60,7 @@ model Wallet {
   address               String   @unique
   publicKey             String   @map("public_key")
   encryptedPrivateKey   String   @map("encrypted_private_key")
-  encryptedMnemonic     String   @map("encrypted_mnemonic")
-  salt                  String   // For key derivation
-  iv                    String   // For encryption
+  mnemonic              String?  // Optional backup phrase
   name                  String   @default("Main Wallet")
   balance               String   @default("0") // Store as string to avoid precision issues
   isActive              Boolean  @default(true) @map("is_active")
@@ -105,43 +103,36 @@ model Block {
 
 // Transactions
 model Transaction {
-  id             String    @id @default(cuid())
-  hash           String    @unique
-  fromAddress    String    @map("from_address")
-  toAddress      String    @map("to_address")
-  userId         String?   @map("user_id")
-  fromWalletId   String?   @map("from_wallet_id")
-  toWalletId     String?   @map("to_wallet_id")
-  blockId        String?   @map("block_id")
-  amount         Decimal   @default(0)
-  nonce          Int       @default(0)
-  gasPrice       Decimal   @default(1) @map("gas_price")
-  gasLimit       Decimal   @default(21000) @map("gas_limit")
-  gasUsed        Decimal?  @map("gas_used")
-  type           String    @default("TRANSFER")
-  status         String    @default("PENDING")
-  timestamp      DateTime  @default(now())
-  blockNumber    Int?      @map("block_number")
-  rawTransaction String?   @map("raw_transaction")
-  receipt        Json?
-  data           String?
-  error          String?
-
+  id          String            @id @default(cuid())
+  hash        String            @unique
+  fromAddress String            @map("from_address")
+  toAddress   String            @map("to_address")
+  amount      String            @default("0") // Store as string for precision
+  fee         String            @default("0")
+  gasPrice    String            @map("gas_price") @default("1")
+  gasLimit    String            @map("gas_limit") @default("21000")
+  gasUsed     String?           @map("gas_used")
+  type        TransactionType   @default(TRANSFER)
+  status      TransactionStatus @default(PENDING)
+  blockId     String?           @map("block_id")
+  blockIndex  Int?              @map("block_index")
+  nonce       Int               @default(0)
+  timestamp   DateTime          @default(now())
+  signature   String
+  data        Json?             // Additional transaction data
+  error       String?           // Error message if failed
+  userId      String?           @map("user_id")
+  
   // Relations
-  user           User?     @relation(fields: [userId], references: [id])
-  fromWallet     Wallet?   @relation("FromWallet", fields: [fromWalletId], references: [id])
-  toWallet       Wallet?   @relation("ToWallet", fields: [toWalletId], references: [id])
-  block          Block?    @relation(fields: [blockId], references: [id])
-
-  @@index([fromAddress])
-  @@index([toAddress])
-  @@index([status])
-  @@index([timestamp])
-  @@index([userId])
-  @@index([fromWalletId])
-  @@index([toWalletId])
-  @@index([blockId])
+  block       Block?  @relation(fields: [blockId], references: [id])
+  user        User?   @relation(fields: [userId], references: [id])
+  fromWallet  Wallet? @relation("FromWallet", fields: [fromAddress], references: [address])
+  toWallet    Wallet? @relation("ToWallet", fields: [toAddress], references: [address])
+  
+  @@map("transactions")
 }
+
+// Bridge Transactions for Cross-Chain
 model BridgeTransaction {
   id                 String                @id @default(cuid())
   fromNetwork        String                @map("from_network")

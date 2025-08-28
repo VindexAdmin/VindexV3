@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   X, 
   Wallet, 
@@ -17,24 +16,16 @@ import {
   EyeOff,
   Plus,
   Trash2,
-  RefreshCw,
-  QrCode,
-  ChevronDown
+  RefreshCw
 } from 'lucide-react';
-import { ethereumWalletService } from '../../../lib/ethereum-wallet-service';
-import { bitcoinWalletService } from '../../../lib/bitcoin-wallet-service';
+import { phantomWalletService } from '../../../lib/phantom-wallet-service';
+import { solflareWalletService } from '../../../lib/solflare-wallet-service';
 import { useAuth } from '../../../lib/auth-context';
 import { useRef, useLayoutEffect, useState as useReactState } from 'react';
 
 interface WalletPanelProps {
   isOpen: boolean;
   onClose: () => void;
-}
-
-interface Wallet {
-  privateKey?: string;
-  publicKey?: string;
-  mnemonic?: string;
 }
 
 interface TokenBalance {
@@ -59,11 +50,6 @@ interface Transaction {
 export default function WalletPanel({ isOpen, onClose }: WalletPanelProps) {
   // Hook para calcular altura del Nav
   const [navHeight, setNavHeight] = useReactState(0);
-  const [wallet, setWallet] = useState<Wallet | null>(null);
-  const [showPrivateKey, setShowPrivateKey] = useState(false);
-  const [showPublicKey, setShowPublicKey] = useState(false);
-  const [showMnemonic, setShowMnemonic] = useState(false);
-  const [showQR, setShowQR] = useState(false);
   const navRef = useRef<HTMLElement | null>(null);
 
   useLayoutEffect(() => {
@@ -74,15 +60,16 @@ export default function WalletPanel({ isOpen, onClose }: WalletPanelProps) {
   }, [isOpen]);
   const { user, api } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'send' | 'receive' | 'history' | 'settings'>('overview');
+  const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [userWallets, setUserWallets] = useState<any[]>([]);
   
   // Balances reales desde el backend
   const [tokenBalances, setTokenBalances] = useState<TokenBalance[]>([
     { symbol: 'VDX', balance: 0, usdValue: 0, icon: '🛡️' },
-    { symbol: 'ETH', balance: 0, usdValue: 0, icon: '⟠' },
-    { symbol: 'BTC', balance: 0, usdValue: 0, icon: '₿' },
-    { symbol: 'USDT', balance: 0, usdValue: 0, icon: '💵' }
+    { symbol: 'SOL', balance: 0, usdValue: 0, icon: '◎' },
+    { symbol: 'XRP', balance: 0, usdValue: 0, icon: '💧' },
+    { symbol: 'SUI', balance: 0, usdValue: 0, icon: '🌊' }
   ]);
 
   // Calcula el balance total en VDX
@@ -91,53 +78,29 @@ export default function WalletPanel({ isOpen, onClose }: WalletPanelProps) {
   // Función para obtener balances reales
   const fetchBalances = async () => {
     try {
+      // Dirección del usuario (ajusta según tu lógica de cuentas)
+      const address = user?.email || '';
+      // Consulta el balance de cada token
       const tokens = [
-        { symbol: 'VDX', icon: '🛡️', service: null },
-        { symbol: 'ETH', icon: '⟠', service: ethereumWalletService },
-        { symbol: 'BTC', icon: '₿', service: bitcoinWalletService },
-        { symbol: 'USDT', icon: '💵', service: null } // USDT will be handled through Ethereum
+        { symbol: 'VDX', icon: '🛡️' },
+        { symbol: 'SOL', icon: '◎' },
+        { symbol: 'XRP', icon: '💧' },
+        { symbol: 'SUI', icon: '🌊' }
       ];
-
       const balances = await Promise.all(tokens.map(async (token) => {
         try {
-          if (token.symbol === 'VDX') {
-            // Use VDX native API
-            const res = await fetch(`http://localhost:3001/api/accounts/${user?.email}?token=VDX`, {
-              headers: {
-                'Authorization': `Bearer ${api.getToken()}`
-              }
-            });
-            const data = await res.json();
-            return {
-              symbol: token.symbol,
-              balance: data.data?.balance || 0,
-              usdValue: (data.data?.balance || 0) * 0.5, // VDX price
-              icon: token.icon
-            };
-          } else if (token.service) {
-            // Use blockchain service
-            const { balance, usdValue } = await token.service.getBalance();
-            return {
-              symbol: token.symbol,
-              balance: parseFloat(balance),
-              usdValue: usdValue,
-              icon: token.icon
-            };
-          } else {
-            // USDT case - get from Ethereum contract
-            const tokenContract = '0xdac17f958d2ee523a2206206994597c13d831ec7'; // USDT contract
-            const response = await fetch(`https://api.etherscan.io/api?module=account&action=tokenbalance&contractaddress=${tokenContract}&address=${await ethereumWalletService.getAddress()}&tag=latest&apikey=${process.env.NEXT_PUBLIC_ETHERSCAN_API_KEY}`);
-            const data = await response.json();
-            const balance = parseFloat(data.result) / 1e6; // USDT has 6 decimals
-            return {
-              symbol: token.symbol,
-              balance: balance,
-              usdValue: balance, // USDT is pegged to USD
-              icon: token.icon
-            };
-          }
+          // Endpoint para cada token (ajusta si tienes endpoints específicos)
+          const res = await fetch(`http://localhost:3001/api/accounts/${address}?token=${token.symbol}`);
+          const data = await res.json();
+          // Simula precio USD (en producción, consulta un API de precios)
+          const usdValue = token.symbol === 'VDX' ? 0.5 : token.symbol === 'SOL' ? 50 : token.symbol === 'XRP' ? 0.5 : token.symbol === 'SUI' ? 0.3 : 0;
+          return {
+            symbol: token.symbol,
+            balance: data.data?.balance || 0,
+            usdValue: (data.data?.balance || 0) * usdValue,
+            icon: token.icon
+          };
         } catch (err) {
-          console.error(`Error fetching ${token.symbol} balance:`, err);
           return {
             symbol: token.symbol,
             balance: 0,
@@ -158,7 +121,7 @@ export default function WalletPanel({ isOpen, onClose }: WalletPanelProps) {
       if (!user?.email) return;
       
       // Llamada al endpoint para obtener wallets del usuario
-      const response = await fetch(`http://localhost:3005/api/auth/wallets`, {
+      const response = await fetch(`http://localhost:3001/api/auth/wallets`, {
         headers: {
           'Authorization': `Bearer ${api.getToken()}`
         }
@@ -175,23 +138,11 @@ export default function WalletPanel({ isOpen, onClose }: WalletPanelProps) {
     }
   };
 
-  // Conecta las wallets y actualiza balances
+  // Actualiza balances al abrir el panel y al refrescar
   useEffect(() => {
     if (isOpen) {
-      // Conectar wallets primero
-      const connectWallets = async () => {
-        try {
-          await ethereumWalletService.connect();
-          await bitcoinWalletService.connect();
-        } catch (error) {
-          console.error('Error connecting wallets:', error);
-        }
-      };
-      
-      connectWallets().then(() => {
-        fetchBalances();
-        fetchUserWallets();
-      });
+      fetchBalances();
+      fetchUserWallets();
     }
   }, [isOpen, user]);
 
@@ -267,62 +218,39 @@ export default function WalletPanel({ isOpen, onClose }: WalletPanelProps) {
         return;
       }
 
-      let txHash;
-      
-      switch (sendForm.token) {
-        case 'VDX':
-          if (!user?.email) {
-            alert('User not authenticated');
-            return;
-          }
-          const response = await api.createTransaction({
-            from: user.email,
-            to: sendForm.recipient,
-            amount: amount,
-            memo: sendForm.memo || ''
-          });
-          if (response.success) {
-            txHash = response.data.id;
-          } else {
-            throw new Error(response.error);
-          }
-          break;
-
-        case 'ETH':
-          txHash = await ethereumWalletService.sendTransaction(
-            sendForm.recipient,
-            sendForm.amount
-          );
-          break;
-
-        case 'BTC':
-          txHash = await bitcoinWalletService.sendTransaction(
-            sendForm.recipient,
-            sendForm.amount
-          );
-          break;
-
-        case 'USDT':
-          // Use Ethereum wallet service with USDT contract
-          // This would need additional implementation for ERC20 transfers
-          alert('USDT transfers coming soon');
-          return;
-
-        default:
-          alert('Unsupported token');
-          return;
+      // Get current user's wallet address
+      if (!user?.email) {
+        alert('User not authenticated');
+        return;
       }
 
-      alert(`Transaction created successfully! TX ID: ${txHash}`);
+      // Make actual transaction using the API
+      const transactionData = {
+        from: user.email, // Using email as identifier for now
+        to: sendForm.recipient,
+        amount: amount,
+        memo: sendForm.memo || ''
+      };
+
+      console.log('Creating transaction:', transactionData);
       
-      // Reset form
-      setSendForm({ token: 'VDX', amount: '', recipient: '', memo: '' });
+      // Call the actual transaction endpoint
+      const response = await api.createTransaction(transactionData);
       
-      // Refresh balances
-      await fetchBalances();
-      
-      // Switch to history tab to show transaction
-      setActiveTab('history');
+      if (response.success) {
+        alert(`Transaction created successfully! TX ID: ${response.data.id}`);
+        
+        // Reset form
+        setSendForm({ token: 'VDX', amount: '', recipient: '', memo: '' });
+        
+        // Refresh balances
+        await fetchBalances();
+        
+        // Switch to history tab to show transaction
+        setActiveTab('history');
+      } else {
+        alert(`Transaction failed: ${response.error}`);
+      }
       
     } catch (error) {
       console.error('Send transaction failed:', error);
@@ -372,15 +300,6 @@ export default function WalletPanel({ isOpen, onClose }: WalletPanelProps) {
     }
   };
 
-  useEffect(() => {
-    // Initialize wallet data when the component mounts
-    setWallet({
-      privateKey: "mock-private-key-1234567890abcdef...",
-      publicKey: "mock-public-key-1234567890abcdef...",
-      mnemonic: "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12"
-    });
-  }, []);
-
   return (
     <AnimatePresence>
       {isOpen && (
@@ -407,8 +326,8 @@ export default function WalletPanel({ isOpen, onClose }: WalletPanelProps) {
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header - Glassmorphism Card */}
-            <div className="relative p-7 pt-2 bg-gradient-to-br from-red-600/80 to-red-700/80 rounded-b-3xl shadow-xl">
-              <div className="flex flex-col sm:flex-row items-start justify-between gap-3 -mt-2">
+            <div className="relative p-7 bg-gradient-to-br from-red-600/80 to-red-700/80 rounded-b-3xl shadow-xl">
+              <div className="flex flex-col sm:flex-row items-center justify-between mb-4 gap-3">
                 <div className="flex items-center gap-3 w-full sm:w-auto">
                   <div className="w-12 h-12 bg-white/30 backdrop-blur-md rounded-full flex items-center justify-center shadow-lg border border-red-200">
                     <Wallet className="w-7 h-7 text-red-600" />
@@ -420,13 +339,13 @@ export default function WalletPanel({ isOpen, onClose }: WalletPanelProps) {
                 </div>
                 <button
                   onClick={onClose}
-                  className="absolute top-2 right-2 p-2 hover:bg-white/20 rounded-lg transition-colors"
+                  className="p-2 hover:bg-white/20 rounded-lg transition-colors"
                 >
                   <X className="w-6 h-6 text-white" />
                 </button>
               </div>
               {/* Total Balance */}
-              <div className="text-center mt-4">
+              <div className="text-center mt-2">
                 <div className="flex flex-col items-center justify-center gap-1">
                   <div className="flex items-center gap-2">
                     <p className="text-4xl font-extrabold text-white drop-shadow">${totalUsdValue.toFixed(2)}</p>
@@ -587,133 +506,61 @@ export default function WalletPanel({ isOpen, onClose }: WalletPanelProps) {
               {/* Receive Tab */}
               {activeTab === 'receive' && (
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold">Receive Tokens</h3>
-                    <button
-                      onClick={() => fetchUserWallets()}
-                      className="text-red-600 hover:text-red-700 flex items-center gap-1 text-sm"
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                      Refresh
-                    </button>
-                  </div>
+                  <h3 className="text-lg font-semibold">Receive Tokens</h3>
                   
-                  <div className="space-y-6">
+                  <div className="space-y-4">
                     {/* VDX Wallet from blockchain */}
-                    <div className="p-6 border border-gray-200 rounded-xl bg-white shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-red-50 rounded-full flex items-center justify-center">
-                            <span className="text-xl">🛡️</span>
-                          </div>
-                          <div>
-                            <span className="font-semibold text-lg block">VDX</span>
-                            <span className="text-sm text-gray-500 block">Vindex Chain Network</span>
-                          </div>
-                        </div>
+                    <div className="p-4 border border-gray-200 rounded-lg">
+                      <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => copyAddress(userWallets.length > 0 ? userWallets[0].address : '')}
-                            disabled={userWallets.length === 0}
-                            className="p-2 hover:bg-gray-100 rounded-full transition-colors disabled:opacity-50"
-                            title="Copy Address"
-                          >
-                            <Copy className="w-5 h-5 text-gray-600" />
-                          </button>
-                          <button
-                            onClick={() => setShowQR(true)}
-                            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                            title="Show QR Code"
-                          >
-                            <QrCode className="w-5 h-5 text-gray-600" />
-                          </button>
-
-                          {/* QR Code Modal */}
-                          {showQR && userWallets.length > 0 && (
-                            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                              <div className="bg-white rounded-xl p-6 max-w-sm w-full mx-4 relative">
-                                <button
-                                  onClick={() => setShowQR(false)}
-                                  className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
-                                >
-                                  <X className="w-5 h-5" />
-                                </button>
-                                
-                                <div className="text-center mb-4">
-                                  <h4 className="text-lg font-semibold">VDX Wallet Address</h4>
-                                  <p className="text-sm text-gray-500">Scan to receive VDX tokens</p>
-                                </div>
-
-                                <div className="bg-white p-4 rounded-lg flex items-center justify-center">
-                                  {/* TODO: Implementar generación real de QR */}
-                                  <div className="w-48 h-48 bg-gray-100 rounded-lg flex items-center justify-center">
-                                    <QrCode className="w-32 h-32 text-gray-400" />
-                                  </div>
-                                </div>
-
-                                <div className="mt-4">
-                                  <div className="text-xs text-gray-500 text-center break-all font-mono">
-                                    {userWallets[0].address}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          )}
+                          <span className="text-xl">🛡️</span>
+                          <span className="font-semibold">VDX</span>
+                          <span className="text-sm text-gray-500">(Vindex Chain)</span>
                         </div>
                       </div>
                       
-                      <div className="bg-gray-50 p-4 rounded-lg border border-gray-100">
-                        <div className="font-mono text-sm break-all text-gray-800">
-                          {userWallets.length > 0 ? userWallets[0].address : 'Loading wallet address...'}
-                        </div>
+                      <div className="bg-gray-50 p-3 rounded text-sm break-all font-mono">
+                        {userWallets.length > 0 ? userWallets[0].address : 'Loading wallet address...'}
                       </div>
                       
-                      <div className="mt-4 text-sm text-gray-500">
-                        Use this address to receive VDX tokens on the Vindex Chain network.
-                      </div>
+                      <button
+                        onClick={() => copyAddress(userWallets.length > 0 ? userWallets[0].address : '')}
+                        disabled={userWallets.length === 0}
+                        className="mt-2 flex items-center gap-2 text-red-600 hover:text-red-700 transition-colors text-sm disabled:opacity-50"
+                      >
+                        <Copy className="w-4 h-4" />
+                        Copy VDX Address
+                      </button>
                     </div>
 
                     {/* Other tokens with mock addresses for now */}
                     {tokenBalances.filter(token => token.symbol !== 'VDX').map((token) => (
-                      <div key={token.symbol} className="p-6 border border-gray-200 rounded-xl bg-white shadow-sm hover:shadow-md transition-shadow opacity-75">
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center">
-                              <span className="text-xl">{token.icon}</span>
-                            </div>
-                            <div>
-                              <span className="font-semibold text-lg block">{token.symbol}</span>
-                              <span className="text-sm text-gray-500 block">External Network</span>
-                            </div>
-                          </div>
+                      <div key={token.symbol} className="p-4 border border-gray-200 rounded-lg">
+                        <div className="flex items-center justify-between mb-3">
                           <div className="flex items-center gap-2">
-                            <button
-                              disabled
-                              className="p-2 hover:bg-gray-100 rounded-full transition-colors disabled:opacity-50"
-                              title="Copy Address"
-                            >
-                              <Copy className="w-5 h-5 text-gray-400" />
-                            </button>
-                            <button
-                              disabled
-                              className="p-2 hover:bg-gray-100 rounded-full transition-colors disabled:opacity-50"
-                              title="Show QR Code"
-                            >
-                              <QrCode className="w-5 h-5 text-gray-400" />
-                            </button>
+                            <span className="text-xl">{token.icon}</span>
+                            <span className="font-semibold">{token.symbol}</span>
+                            <span className="text-sm text-gray-500">(External Chain)</span>
                           </div>
                         </div>
                         
-                        <div className="bg-gray-50 p-4 rounded-lg border border-gray-100">
-                          <div className="font-mono text-sm break-all text-gray-400">
-                            Bridge Integration Coming Soon
-                          </div>
+                        <div className="bg-gray-50 p-3 rounded text-sm break-all font-mono">
+                          {token.symbol === 'SOL' ? 'So11111111111111111111111...' :
+                           token.symbol === 'XRP' ? 'rN7n7otQDd6FczFgLdSqtcsAUxDkw6fzRH' :
+                           'sui1234567890abcdef...'}
                         </div>
                         
-                        <div className="mt-4 flex items-center gap-2 text-sm text-gray-500">
-                          <span>⚠️</span>
-                          <span>Bridge functionality for {token.symbol} is under development</span>
-                        </div>
+                        <button
+                          onClick={() => copyAddress('mock-address')}
+                          className="mt-2 flex items-center gap-2 text-red-600 hover:text-red-700 transition-colors text-sm"
+                        >
+                          <Copy className="w-4 h-4" />
+                          Copy Address
+                        </button>
+                        
+                        <p className="text-xs text-gray-500 mt-2">
+                          ⚠️ Bridge functionality coming soon
+                        </p>
                       </div>
                     ))}
                   </div>
@@ -769,71 +616,16 @@ export default function WalletPanel({ isOpen, onClose }: WalletPanelProps) {
                   
                   <div className="space-y-4">
                     <div className="p-4 border border-gray-200 rounded-lg">
-                      <h4 className="font-medium mb-4">Security</h4>
-                      <div className="space-y-4">
-                        {/* Private Key Section */}
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">Private Key</span>
-                            <button
-                              onClick={() => setShowPrivateKey(!showPrivateKey)}
-                              className="px-3 py-1 text-xs font-medium text-red-600 hover:text-red-700 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
-                            >
-                              {showPrivateKey ? 'Hide' : 'Reveal'}
-                            </button>
-                          </div>
-                          {showPrivateKey && (
-                            <div className="bg-gray-50 p-3 rounded-lg">
-                              <p className="text-xs font-mono break-all text-gray-700">
-                                {wallet?.privateKey || 'No private key available'}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Public Key Section */}
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">Public Key</span>
-                            <button
-                              onClick={() => setShowPublicKey(!showPublicKey)}
-                              className="px-3 py-1 text-xs font-medium text-red-600 hover:text-red-700 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
-                            >
-                              {showPublicKey ? 'Hide' : 'Reveal'}
-                            </button>
-                          </div>
-                          {showPublicKey && (
-                            <div className="bg-gray-50 p-3 rounded-lg">
-                              <p className="text-xs font-mono break-all text-gray-700">
-                                {wallet?.publicKey || 'No public key available'}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Mnemonic Section */}
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">Recovery Phrase</span>
-                            <button
-                              onClick={() => setShowMnemonic(!showMnemonic)}
-                              className="px-3 py-1 text-xs font-medium text-red-600 hover:text-red-700 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
-                            >
-                              {showMnemonic ? 'Hide' : 'Reveal'}
-                            </button>
-                          </div>
-                          {showMnemonic && (
-                            <div className="bg-gray-50 p-3 rounded-lg">
-                              <div className="grid grid-cols-3 gap-2">
-                                {wallet?.mnemonic?.split(' ').map((word, index) => (
-                                  <div key={index} className="flex items-center">
-                                    <span className="text-xs text-gray-500 w-4">{index + 1}.</span>
-                                    <span className="text-xs font-mono text-gray-700">{word}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
+                      <h4 className="font-medium mb-2">Security</h4>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm">Show Private Key</span>
+                          <button
+                            onClick={() => setShowPrivateKey(!showPrivateKey)}
+                            className="text-red-600 hover:text-red-700"
+                          >
+                            {showPrivateKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
                         </div>
                         
                         {showPrivateKey && (
@@ -849,15 +641,11 @@ export default function WalletPanel({ isOpen, onClose }: WalletPanelProps) {
                       <h4 className="font-medium mb-2">Connected Wallets</h4>
                       <div className="space-y-2">
                         <div className="flex items-center justify-between text-sm">
-                          <span>Ethereum Wallet</span>
+                          <span>Phantom Wallet</span>
                           <span className="text-green-600">Connected</span>
                         </div>
                         <div className="flex items-center justify-between text-sm">
-                          <span>Bitcoin Wallet</span>
-                          <span className="text-green-600">Connected</span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                          <span>Tether Wallet</span>
+                          <span>Solflare Wallet</span>
                           <span className="text-gray-500">Disconnected</span>
                         </div>
                       </div>

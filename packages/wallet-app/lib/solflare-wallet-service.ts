@@ -28,9 +28,8 @@ export class SolflareWalletService {
   private eventListeners: Map<string, Function[]> = new Map();
 
   constructor() {
-    // Use Solana devnet for testing and development
-    this.connection = new Connection('https://api.devnet.solana.com', 'confirmed');
-    console.log('Initialized Solflare wallet service with Solana devnet');
+    // Use Solana mainnet for production, devnet for testing
+    this.connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
   }
 
   /**

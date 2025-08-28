@@ -37,14 +37,6 @@ export class PhantomWalletService {
 
   constructor() {
     this.wallet = this.getPhantomWallet();
-    console.log('Initialized Phantom wallet service with Solana devnet');
-  }
-
-  /**
-   * Get the current network (devnet for development)
-   */
-  getNetwork(): string {
-    return 'devnet';
   }
 
   /**

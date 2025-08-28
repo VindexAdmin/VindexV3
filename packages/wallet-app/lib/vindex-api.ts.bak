@@ -1,0 +1,324 @@
+import { ApiResponse, LoginResponse, WalletData, WalletResponse } from './types/api';
+
+class VindexAPI {
+  private readonly baseURL: string;
+  private token: string | null;
+  private readonly walletEndpoints: {
+    readonly decryptMnemonic: (walletId: string, password: string) => string;
+  };
+
+  constructor(baseURL: string = 'http://localhost:3001') {
+    this.baseURL = baseURL === '' || baseURL === '/' ? '' : baseURL;
+    this.token = null;
+    
+    this.walletEndpoints = {
+      decryptMnemonic: (walletId: string, password: string) => `/wallets/${walletId}/mnemonic`,
+    };
+
+    if (typeof window !== 'undefined') {
+      const storedToken = localStorage.getItem('vindex_token');
+      if (storedToken && this.isValidJWT(storedToken)) {
+        this.token = storedToken;
+      } else {
+        localStorage.removeItem('vindex_token');
+        this.token = null;
+      }
+    }
+  }
+
+  private isValidJWT = (token: string): boolean => {
+    if (!token) return false;
+    
+    const parts = token.split('.');
+    if (parts.length !== 3) return false;
+
+    try {
+      parts.forEach(part => {
+        if (part) {
+          atob(part.replace(/-/g, '+').replace(/_/g, '/'));
+        }
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  private request = async <T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> => {
+
+  constructor(baseURL: string = 'http://localhost:3001') {
+    // Initialize required fields
+    this.baseURL = baseURL === '' || baseURL === '/' ? '' : baseURL;
+    this.token = null;
+
+    // Initialize token from localStorage, but only on the client side
+    if (typeof window !== 'undefined') {
+      const storedToken = localStorage.getItem('vindex_token');
+      if (storedToken && this.isValidJWT(storedToken)) {
+        this.token = storedToken;
+      } else {
+        localStorage.removeItem('vindex_token');
+        this.token = null;
+      }
+    }
+  }
+
+  private isValidJWT(token: string): boolean {
+    if (!token) return false;
+    
+    const parts = token.split('.');
+    if (parts.length !== 3) return false;
+
+    try {
+      parts.forEach(part => {
+        if (part) {
+          atob(part.replace(/-/g, '+').replace(/_/g, '/'));
+        }
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+      return false;
+    }
+  }
+
+  private request = async (endpoint: string, options: RequestInit = {}): Promise<any> => {
+    const url = `${this.baseURL}${endpoint}`;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(options.headers as Record<string, string>),
+    };
+
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    try {
+      console.log(`Making API request to ${endpoint}...`, {
+        method: options.method,
+        hasBody: !!options.body
+      });
+
+      const response = await fetch(url, {
+        ...options,
+        headers,
+      });
+
+      console.log(`API response status:`, {
+        status: response.status,
+        ok: response.ok,
+        statusText: response.statusText
+      });
+
+      const data = await response.json();
+      console.log('API response data:', {
+        success: data.success,
+        hasError: !!data.error,
+        error: data.error
+      });
+
+      if (!response.ok) {
+        const errorMessage = data.error || response.statusText || 'Request failed';
+        console.error(`API Error (${response.status}):`, {
+          message: errorMessage,
+          details: data
+        });
+        throw new Error(errorMessage);
+      }
+
+      return data;
+    } catch (error) {
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        console.error('Network error:', error);
+        throw new Error('Unable to connect to the server. Please check your internet connection.');
+      }
+      console.error('Request error:', {
+        error,
+        message: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
+    }
+  }
+
+  // Authentication methods
+  async register(email: string, password: string, firstName?: string, lastName?: string, walletData?: WalletData) {
+    try {
+      console.log('Making registration request to API...', {
+        email,
+        hasPassword: !!password,
+        firstName,
+        lastName,
+        endpoint: '/api/auth/register'
+      });
+
+      const data = await this.request('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({ 
+          email, 
+          password, 
+          firstName, 
+          lastName,
+          wallet: walletData 
+        }),
+      });
+
+      console.log('Registration API response:', {
+        success: data.success,
+        hasToken: !!data.data?.token,
+        hasUser: !!data.data?.user,
+        error: data.error
+      });
+
+      if (!data.success) {
+        throw new Error(data.error || 'Registration failed');
+      }
+
+      if (data.success && data.data.token) {
+        console.log('Setting authentication token...');
+        this.setToken(data.data.token);
+      } else {
+        throw new Error('No authentication token received');
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Registration error:', error);
+      throw new Error(error instanceof Error ? error.message : 'Registration failed. Please try again.');
+    }
+  }
+
+  async login(email: string, password: string) {
+    try {
+      const data = await this.request('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!data.success) {
+        throw new Error(data.error || 'Login failed');
+      }
+
+      if (!data.data || !data.data.token) {
+        throw new Error('No authentication token received');
+      }
+
+      // Validate and set the token
+      if (this.isValidJWT(data.data.token)) {
+        this.setToken(data.data.token);
+      } else {
+        throw new Error('Invalid authentication token received');
+      }
+
+      return data;
+  }
+
+  logout = async (): Promise<void> => {
+    try {
+      await this.request('/api/auth/logout', { method: 'POST' });
+    } finally {
+      this.clearToken();
+    }
+  }
+
+  async getProfile() {
+    return this.request('/api/auth/me');
+  }
+
+  async createWallet(name?: string) {
+    return this.request('/api/auth/wallet', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  async getWallets() {
+    return this.request('/api/auth/wallets');
+  }
+
+  // Blockchain methods
+  async getBlockchainInfo() {
+    return this.request('/api/blockchain/info');
+  }
+
+  async getBlocks(limit = 10, offset = 0) {
+    return this.request(`/api/blocks?limit=${limit}&offset=${offset}`);
+  }
+
+  async getBlock(identifier: string | number) {
+    return this.request(`/api/blocks/${identifier}`);
+  }
+
+  async sendTransaction(transaction: any) {
+    return this.request('/api/transactions', {
+      method: 'POST',
+      body: JSON.stringify(transaction),
+    });
+  }
+
+  async createTransaction(transactionData: { from: string; to: string; amount: number; memo?: string }) {
+    return this.sendTransaction(transactionData);
+  }
+
+  async getTransactionPool() {
+    return this.request('/api/transactions/pending');
+  }
+
+  async getBalance(address: string) {
+    return this.request(`/api/balance/${address}`);
+  }
+
+  async mineBlock() {
+    return this.request('/api/mine', { method: 'POST' });
+  }
+
+  // Token management
+  setToken(token: string) {
+    if (!token || !this.isValidJWT(token)) {
+      console.error('Attempted to set invalid JWT token');
+      this.clearToken();
+      return;
+    }
+
+    this.token = token;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('vindex_token', token);
+    }
+  }
+
+  clearToken() {
+    this.token = null;
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('vindex_token');
+    }
+  }
+
+  getToken(): string | null {
+    // Verify token is still valid before returning
+    if (this.token && !this.isValidJWT(this.token)) {
+      this.clearToken();
+      return null;
+    }
+    return this.token;
+  }
+
+  async decryptWalletMnemonic(walletId: string, password: string): Promise<string> {
+    const response = await this.request(this.walletEndpoints.decryptMnemonic(walletId, password), {
+      method: 'POST',
+      body: JSON.stringify({ password })
+    });
+    
+    if (!response.success) {
+      throw new Error(response.error || 'Failed to decrypt mnemonic');
+    }
+    
+    return response.data.mnemonic;
+  }
+
+  isAuthenticated(): boolean {
+    return !!this.token;
+  }
+}
+
+
